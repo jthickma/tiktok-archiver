@@ -114,6 +114,7 @@ body {
   font-weight: 800;
   background: var(--accent-gradient);
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
   letter-spacing: 0;
   overflow-wrap: anywhere;
@@ -558,6 +559,7 @@ body {
   color: var(--text-primary);
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
   height: 2.7rem;
@@ -1788,6 +1790,7 @@ a:focus-visible {
   margin-bottom: 1.25rem;
   background: var(--accent-gradient);
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 

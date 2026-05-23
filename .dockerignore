@@ -1,0 +1,17 @@
+# Dependency directories
+node_modules/
+**/node_modules/
+
+# Local data & downloads
+data/
+downloads/
+
+# Build outputs
+frontend/dist/
+
+# Version control & OS files
+.git/
+.gitignore
+.DS_Store
+Dockerfile
+docker-compose.yml

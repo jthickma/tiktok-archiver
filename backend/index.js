@@ -3,7 +3,7 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import archiver from 'archiver';
+import { ZipArchive } from 'archiver';
 import { initDb, dbAll, dbRun, dbGet } from './database.js';
 import { enqueue, processQueue } from './queue.js';
 import { extractUsername } from './downloader.js';
@@ -281,7 +281,7 @@ app.get('/api/posts/zip', async (req, res) => {
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="${zipName}"`);
 
-    const archive = archiver('zip', { zlib: { level: 9 } });
+    const archive = new ZipArchive({ zlib: { level: 9 } });
 
     archive.on('warning', (err) => {
       if (err.code === 'ENOENT') {
@@ -346,7 +346,7 @@ app.get('/api/posts/:id/download', async (req, res) => {
       res.setHeader('Content-Type', 'application/zip');
       res.setHeader('Content-Disposition', `attachment; filename="${folderName}.zip"`);
       
-      const archive = archiver('zip', { zlib: { level: 9 } });
+      const archive = new ZipArchive({ zlib: { level: 9 } });
       archive.pipe(res);
       archive.directory(fullPath, false);
       await archive.finalize();
