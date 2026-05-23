@@ -12,11 +12,44 @@ const COOKIES_PATH = path.join(DATA_DIR, 'cookies.txt');
 
 // Helper to parse username from URL or metadata
 export const extractUsername = (url, metadata = {}) => {
-  let handle = metadata.uploader_id || metadata.uploader;
-  if (!handle) {
-    const match = url.match(/@([a-zA-Z0-9_.-]+)/);
-    handle = match ? match[1] : 'unknown';
+  let handle = '';
+
+  // 1. Try to extract from metadata.webpage_url first (since it is the fully resolved canonical URL)
+  if (metadata && metadata.webpage_url) {
+    const match = metadata.webpage_url.match(/@([a-zA-Z0-9_.-]+)/);
+    if (match) {
+      handle = match[1];
+    }
   }
+
+  // 2. Try to extract from the input url
+  if (!handle && url) {
+    const match = url.match(/@([a-zA-Z0-9_.-]+)/);
+    if (match) {
+      handle = match[1];
+    }
+  }
+
+  // 3. Try to extract from metadata.original_url
+  if (!handle && metadata && metadata.original_url) {
+    const match = metadata.original_url.match(/@([a-zA-Z0-9_.-]+)/);
+    if (match) {
+      handle = match[1];
+    }
+  }
+
+  // 4. Fallback to uploader if it exists and is not purely numeric (which represents user ID)
+  if (!handle && metadata && metadata.uploader) {
+    const possibleUploader = metadata.uploader;
+    if (possibleUploader && !/^\d+$/.test(possibleUploader)) {
+      handle = possibleUploader;
+    }
+  }
+
+  if (!handle) {
+    handle = 'unknown';
+  }
+
   // Strip starting '@' if present, then prepend to make it consistent '@username'
   handle = handle.replace(/^@/, '');
   return `@${handle}`;

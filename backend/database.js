@@ -93,4 +93,90 @@ export const initDb = async () => {
   `);
 
   console.log('[DB] SQLite database initialized successfully.');
+  
+  // Run database healing to fix any existing corrupt/numeric channel mappings
+  await healDatabase();
+};
+
+const extractUsernameFromUrl = (url) => {
+  if (!url) return null;
+  const match = url.match(/@([a-zA-Z0-9_.-]+)/);
+  if (match) {
+    const handle = match[1].replace(/^@/, '');
+    return `@${handle}`;
+  }
+  return null;
+};
+
+export const healDatabase = async () => {
+  console.log('[DB-Healing] Checking for database inconsistencies...');
+  try {
+    // 1. Fetch all posts
+    const posts = await dbAll('SELECT id, channel_id, url FROM posts');
+    console.log(`[DB-Healing] Scanning ${posts.length} posts for incorrect channel links...`);
+
+    for (const post of posts) {
+      const correctChannelId = extractUsernameFromUrl(post.url);
+      if (correctChannelId && correctChannelId !== post.channel_id) {
+        console.log(`[DB-Healing] Found post ${post.id} linked to incorrect channel_id "${post.channel_id}". Correct is "${correctChannelId}".`);
+        
+        // Retrieve details from incorrect channel if it exists
+        const oldChannel = await dbGet('SELECT * FROM channels WHERE id = ?', [post.channel_id]);
+        
+        // Ensure correct channel exists
+        const correctChannelExists = await dbGet('SELECT * FROM channels WHERE id = ?', [correctChannelId]);
+        if (!correctChannelExists) {
+          const isMonitored = oldChannel ? oldChannel.is_monitored : 0;
+          const lastChecked = oldChannel ? oldChannel.last_checked_at : null;
+          await dbRun(
+            'INSERT INTO channels (id, username, url, created_at, last_checked_at, is_monitored) VALUES (?, ?, ?, ?, ?, ?)',
+            [
+              correctChannelId, 
+              correctChannelId.replace(/^@/, ''), 
+              `https://www.tiktok.com/${correctChannelId}`, 
+              oldChannel ? oldChannel.created_at : new Date().toISOString(),
+              lastChecked,
+              isMonitored
+            ]
+          );
+          console.log(`[DB-Healing] Created correct channel: ${correctChannelId}`);
+        } else if (oldChannel) {
+          // If old channel was monitored, make sure correct channel is monitored too
+          if (oldChannel.is_monitored === 1) {
+            await dbRun('UPDATE channels SET is_monitored = 1 WHERE id = ?', [correctChannelId]);
+          }
+          // If old channel has scan history and correct channel doesn't, copy last_checked_at
+          if (oldChannel.last_checked_at && !correctChannelExists.last_checked_at) {
+            await dbRun('UPDATE channels SET last_checked_at = ? WHERE id = ?', [oldChannel.last_checked_at, correctChannelId]);
+          }
+        }
+
+        // Update the post to link to the correct channel
+        await dbRun('UPDATE posts SET channel_id = ? WHERE id = ?', [correctChannelId, post.id]);
+        console.log(`[DB-Healing] Re-linked post ${post.id} to ${correctChannelId}.`);
+      }
+    }
+
+    // 2. Clean up duplicate/incorrect channels
+    // Any channel whose ID starts with '@' followed only by digits (numeric ID) and has 0 posts
+    // can be safely removed.
+    const allChannels = await dbAll('SELECT id FROM channels');
+    for (const chan of allChannels) {
+      const isNumeric = /^@\d+$/.test(chan.id);
+      if (isNumeric) {
+        // Count posts remaining
+        const postCountRes = await dbGet('SELECT COUNT(*) as count FROM posts WHERE channel_id = ?', [chan.id]);
+        const postCount = postCountRes ? postCountRes.count : 0;
+        
+        if (postCount === 0) {
+          await dbRun('DELETE FROM channels WHERE id = ?', [chan.id]);
+          console.log(`[DB-Healing] Deleted orphaned numeric channel: ${chan.id}`);
+        }
+      }
+    }
+
+    console.log('[DB-Healing] Database healing check completed.');
+  } catch (err) {
+    console.error('[DB-Healing] Error during database healing:', err);
+  }
 };
