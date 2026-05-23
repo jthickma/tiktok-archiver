@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  tiktok-archiver:
+    build: .
+    container_name: tiktok-archiver
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    volumes:
+      - ./downloads:/app/downloads
+      - ./data:/app/data
+    environment:
+      - PORT=8080
+      - DATA_DIR=/app/data
+      - DOWNLOADS_DIR=/app/downloads
+      - NODE_ENV=production
