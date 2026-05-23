@@ -78,7 +78,7 @@ export default function LogQueue() {
   };
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: selectedJob ? '1fr 1fr' : '1fr', gap: '2rem', transition: 'all 0.3s ease' }}>
+    <div className={`queue-layout ${selectedJob ? 'with-console' : ''}`}>
       
       {/* LEFT PANEL: Queue and History */}
       <div>
@@ -92,10 +92,12 @@ export default function LogQueue() {
           ) : (
             <div>
               {activeJobs.map((job) => (
-                <div
+                <button
+                  type="button"
                   key={job.id}
                   className={`job-item ${selectedJob?.id === job.id ? 'active-selection' : ''}`}
                   onClick={() => setSelectedJob(job)}
+                  aria-pressed={selectedJob?.id === job.id}
                   style={{
                     cursor: 'pointer',
                     borderLeft: selectedJob?.id === job.id ? '4px solid var(--accent-purple)' : '1px solid var(--glass-border)'
@@ -120,7 +122,7 @@ export default function LogQueue() {
                     </span>
                     <span>{job.progress}%</span>
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           )}
@@ -136,10 +138,12 @@ export default function LogQueue() {
           ) : (
             <div style={{ maxHeight: '400px', overflowY: 'auto', paddingRight: '0.5rem' }}>
               {historyJobs.map((job) => (
-                <div
+                <button
+                  type="button"
                   key={job.id}
                   className={`job-item`}
                   onClick={() => setSelectedJob(job)}
+                  aria-pressed={selectedJob?.id === job.id}
                   style={{
                     cursor: 'pointer',
                     padding: '0.85rem 1.25rem',
@@ -163,7 +167,7 @@ export default function LogQueue() {
                       {formatDate(job.completed_at || job.started_at)}
                     </span>
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           )}
@@ -181,6 +185,7 @@ export default function LogQueue() {
               </div>
             </div>
             <button
+              type="button"
               className="btn btn-secondary"
               style={{ padding: '0.4rem 0.85rem', fontSize: '0.85rem' }}
               onClick={() => setSelectedJob(null)}

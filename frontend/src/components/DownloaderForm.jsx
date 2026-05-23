@@ -43,15 +43,15 @@ export default function DownloaderForm({ onNavigateToQueue }) {
   };
 
   return (
-    <div style={{ maxWidth: '720px', margin: '0 auto' }}>
-      <div className="glass-panel" style={{ padding: '3rem' }}>
+    <div className="narrow-page">
+      <div className="glass-panel feature-panel" style={{ padding: '3rem' }}>
         <div style={{ textAlign: 'center', marginBottom: '2.5rem' }}>
           <div
             style={{
               width: '64px',
               height: '64px',
               borderRadius: '20px',
-              background: 'rgba(168, 85, 247, 0.15)',
+              background: 'rgba(37, 244, 238, 0.12)',
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -132,7 +132,7 @@ export default function DownloaderForm({ onNavigateToQueue }) {
       </div>
 
       <div style={{ marginTop: '2rem', padding: '0 1rem' }}>
-        <h4 style={{ color: 'var(--text-primary)', marginBottom: '0.5rem', fontWeight: 600 }}>💡 Archiving Tips:</h4>
+        <h4 style={{ color: 'var(--text-primary)', marginBottom: '0.5rem', fontWeight: 600 }}>Archiving Tips</h4>
         <ul style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', lineHeight: '1.6', paddingLeft: '1.2rem' }}>
           <li>Profile URLs (e.g. <code>https://www.tiktok.com/@username</code>) will check for new posts.</li>
           <li>Video URLs will be downloaded immediately into the uploader's subfolder.</li>

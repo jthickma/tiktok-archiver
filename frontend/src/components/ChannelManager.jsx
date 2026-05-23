@@ -82,7 +82,7 @@ export default function ChannelManager({ onNavigateToQueue }) {
       {/* Add Channel Form */}
       <div className="glass-panel" style={{ marginBottom: '2.5rem' }}>
         <h2 className="logo-text" style={{ fontSize: '1.5rem', marginBottom: '1.25rem' }}>Monitor New Profile</h2>
-        <form onSubmit={handleAddChannel} style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+        <form onSubmit={handleAddChannel} className="inline-action-form">
           <div className="form-group" style={{ flexGrow: 1, minWidth: '250px', marginBottom: 0 }}>
             <label className="form-label">TikTok Profile URL or @handle</label>
             <input
@@ -131,7 +131,7 @@ export default function ChannelManager({ onNavigateToQueue }) {
               <tbody>
                 {channels.map((chan) => (
                   <tr key={chan.id}>
-                    <td>
+                    <td data-label="Profile">
                       <div className="channel-row-name">
                         <div className="channel-avatar-fallback">
                           {chan.username.slice(0, 1).toUpperCase()}
@@ -144,12 +144,12 @@ export default function ChannelManager({ onNavigateToQueue }) {
                             rel="noopener noreferrer"
                             style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textDecoration: 'none' }}
                           >
-                            Open TikTok ↗
+                            Open TikTok
                           </a>
                         </div>
                       </div>
                     </td>
-                    <td>
+                    <td data-label="Status">
                       <span
                         style={{
                           fontSize: '0.8rem',
@@ -164,15 +164,16 @@ export default function ChannelManager({ onNavigateToQueue }) {
                         {chan.is_monitored ? 'Monitored' : 'Inactive'}
                       </span>
                     </td>
-                    <td style={{ fontWeight: 700, fontFamily: 'Outfit' }}>
+                    <td data-label="Archive Count" style={{ fontWeight: 700, fontFamily: 'Outfit' }}>
                       {chan.downloaded_count} posts
                     </td>
-                    <td style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                    <td data-label="Last Scanned" style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
                       {formatDate(chan.last_checked_at)}
                     </td>
-                    <td>
+                    <td data-label="Actions">
                       {chan.is_monitored ? (
                         <button
+                          type="button"
                           className="btn btn-secondary"
                           style={{
                             padding: '0.4rem 0.85rem',
@@ -186,6 +187,7 @@ export default function ChannelManager({ onNavigateToQueue }) {
                         </button>
                       ) : (
                         <button
+                          type="button"
                           className="btn btn-secondary"
                           style={{ padding: '0.4rem 0.85rem', fontSize: '0.85rem' }}
                           onClick={async () => {
