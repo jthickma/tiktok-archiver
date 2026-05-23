@@ -5,7 +5,9 @@ services:
     build: .
     container_name: tiktok-archiver
     ports:
-      - "8080:8080"
+      - "18080:8080"
+    labels:
+      - "proxy.aliases=tiktok,tiktok-archiver"
     restart: unless-stopped
     volumes:
       - ./downloads:/app/downloads

@@ -18,6 +18,7 @@ const CHANNELS_FILE = path.join(DATA_DIR, 'channels.txt');
 const COOKIES_FILE = path.join(DATA_DIR, 'cookies.txt');
 
 const app = express();
+app.set('trust proxy', 1); // trust first proxy for secure headers/cookies behind GoDoxy
 app.use(cors());
 app.use(express.json());
 
