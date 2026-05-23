@@ -117,11 +117,9 @@ export default function MediaBrowser() {
           placeholder="Search captions or descriptions..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          style={{ maxWidth: '300px' }}
         />
 
-        {/* Filters Group */}
-        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+        <div className="filter-controls">
           <select
             className="select-input"
             value={selectedChannel}
@@ -178,7 +176,8 @@ export default function MediaBrowser() {
         <>
           <div className="media-grid">
             {posts.map((post) => (
-              <div
+              <button
+                type="button"
                 key={post.id}
                 className="media-card"
                 onClick={() => (post.type === 'video' ? setActiveVideo(post) : openSlideshow(post))}
@@ -210,13 +209,13 @@ export default function MediaBrowser() {
                     </div>
                   </div>
                 </div>
-              </div>
+              </button>
             ))}
           </div>
 
           {/* Pagination */}
           {totalPages > 1 && (
-            <div style={{ display: 'flex', justifyContent: 'center', gap: '0.5rem', marginTop: '2rem' }}>
+            <div className="pagination-controls">
               <button
                 className="btn btn-secondary"
                 disabled={page === 1}
@@ -224,7 +223,7 @@ export default function MediaBrowser() {
               >
                 Previous
               </button>
-              <div style={{ display: 'flex', alignItems: 'center', padding: '0 1rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+              <div className="pagination-label">
                 Page {page} of {totalPages}
               </div>
               <button
@@ -243,7 +242,7 @@ export default function MediaBrowser() {
       {activeVideo && (
         <div className="modal-overlay" onClick={() => setActiveVideo(null)}>
           <div className="modal-container" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '640px' }}>
-            <button className="modal-close" onClick={() => setActiveVideo(null)}>✕</button>
+            <button type="button" className="modal-close" onClick={() => setActiveVideo(null)} aria-label="Close video">x</button>
             <div className="video-wrapper">
               <video
                 src={`/media/${activeVideo.file_path}`}
@@ -271,12 +270,12 @@ export default function MediaBrowser() {
       {activeSlideshow && (
         <div className="modal-overlay" onClick={closeSlideshow}>
           <div className="modal-container" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '720px' }}>
-            <button className="modal-close" onClick={closeSlideshow}>✕</button>
+            <button type="button" className="modal-close" onClick={closeSlideshow} aria-label="Close slideshow">x</button>
             
             <div className="slideshow-wrapper">
               {slideshowImages.length > 1 && (
-                <button className="slide-nav-btn" onClick={prevSlide}>
-                  ‹
+                <button type="button" className="slide-nav-btn" onClick={prevSlide} aria-label="Previous slide">
+                  &lt;
                 </button>
               )}
 
@@ -293,8 +292,8 @@ export default function MediaBrowser() {
               </div>
 
               {slideshowImages.length > 1 && (
-                <button className="slide-nav-btn" onClick={nextSlide}>
-                  ›
+                <button type="button" className="slide-nav-btn" onClick={nextSlide} aria-label="Next slide">
+                  &gt;
                 </button>
               )}
 

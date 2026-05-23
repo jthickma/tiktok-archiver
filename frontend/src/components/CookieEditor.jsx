@@ -48,8 +48,8 @@ export default function CookieEditor() {
   };
 
   return (
-    <div style={{ maxWidth: '800px', margin: '0 auto' }}>
-      <div className="glass-panel" style={{ padding: '2.5rem' }}>
+    <div className="narrow-page wide">
+      <div className="glass-panel feature-panel" style={{ padding: '2.5rem' }}>
         <h2 className="logo-text" style={{ fontSize: '1.75rem', marginBottom: '0.5rem' }}>Authentication Cookies</h2>
         <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem', fontSize: '0.95rem', lineHeight: '1.6' }}>
           If TikTok blocks downloads, throws rate limit errors, or restricts private videos, paste your browser session cookies below. The cookies must be in **Netscape / Mozilla format**.
@@ -116,7 +116,7 @@ export default function CookieEditor() {
       </div>
 
       <div className="glass-panel" style={{ marginTop: '2rem', padding: '2rem' }}>
-        <h3 style={{ color: 'var(--text-primary)', marginBottom: '0.75rem', fontWeight: 700 }}>📖 How to Export Cookies:</h3>
+        <h3 style={{ color: 'var(--text-primary)', marginBottom: '0.75rem', fontWeight: 700 }}>How to Export Cookies</h3>
         <ol style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: '1.7', paddingLeft: '1.2rem' }}>
           <li>
             Install a browser extension like <strong>"Get cookies.txt LOCALLY"</strong> or <strong>"Export cookies"</strong> (available on Chrome Web Store and Firefox Add-ons).

@@ -94,93 +94,91 @@ export default function App() {
 
   return (
     <div className="app-container">
-      {/* SIDEBAR NAVIGATION */}
       <aside className="sidebar">
         <div className="logo">
-          {/* SVG Custom Favicon */}
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
             <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.62 2.89 2.89 0 0 1 2.31-4.51c.36 0 .7.06 1.02.18V9.25a6.32 6.32 0 0 0-1.02-.08 6.34 6.34 0 0 0-6.2 5.17 6.34 6.34 0 0 0 5.17 7.37 6.33 6.33 0 0 0 7.23-6.07V7.83a8.3 8.3 0 0 0 4.14 1.34V5.72a4.8 4.8 0 0 1-1-.22z" />
           </svg>
           <span className="logo-text">TikTok Archiver</span>
         </div>
 
-        <nav style={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
+        <nav className="primary-nav" aria-label="Primary navigation">
           <ul className="nav-links">
-            <li
-              className={`nav-item ${activeTab === 'browser' ? 'active' : ''}`}
-              onClick={() => setActiveTab('browser')}
-            >
-              {/* Media Browser Icon */}
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="7" height="9" />
-                <rect x="14" y="3" width="7" height="5" />
-                <rect x="14" y="12" width="7" height="9" />
-                <rect x="3" y="16" width="7" height="5" />
-              </svg>
-              Media Archive
+            <li>
+              <button
+                type="button"
+                className={`nav-item ${activeTab === 'browser' ? 'active' : ''}`}
+                onClick={() => setActiveTab('browser')}
+                aria-current={activeTab === 'browser' ? 'page' : undefined}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="3" width="7" height="9" />
+                  <rect x="14" y="3" width="7" height="5" />
+                  <rect x="14" y="12" width="7" height="9" />
+                  <rect x="3" y="16" width="7" height="5" />
+                </svg>
+                <span>Archive</span>
+              </button>
             </li>
-            <li
-              className={`nav-item ${activeTab === 'channels' ? 'active' : ''}`}
-              onClick={() => setActiveTab('channels')}
-            >
-              {/* Profile Manager Icon */}
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                <circle cx="9" cy="7" r="4" />
-                <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-              </svg>
-              Monitored Profiles
+            <li>
+              <button
+                type="button"
+                className={`nav-item ${activeTab === 'channels' ? 'active' : ''}`}
+                onClick={() => setActiveTab('channels')}
+                aria-current={activeTab === 'channels' ? 'page' : undefined}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                  <circle cx="9" cy="7" r="4" />
+                  <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                  <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                </svg>
+                <span>Profiles</span>
+              </button>
             </li>
-            <li
-              className={`nav-item ${activeTab === 'downloader' ? 'active' : ''}`}
-              onClick={() => setActiveTab('downloader')}
-            >
-              {/* On-Demand Downloader Icon */}
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="7 10 12 15 17 10" />
-                <line x1="12" y1="15" x2="12" y2="3" />
-              </svg>
-              On-Demand Tool
+            <li>
+              <button
+                type="button"
+                className={`nav-item ${activeTab === 'downloader' ? 'active' : ''}`}
+                onClick={() => setActiveTab('downloader')}
+                aria-current={activeTab === 'downloader' ? 'page' : undefined}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+                <span>Download</span>
+              </button>
             </li>
-            <li
-              className={`nav-item ${activeTab === 'cookies' ? 'active' : ''}`}
-              onClick={() => setActiveTab('cookies')}
-            >
-              {/* Cookies Authentication Icon */}
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-              </svg>
-              Auth Cookies
+            <li>
+              <button
+                type="button"
+                className={`nav-item ${activeTab === 'cookies' ? 'active' : ''}`}
+                onClick={() => setActiveTab('cookies')}
+                aria-current={activeTab === 'cookies' ? 'page' : undefined}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                </svg>
+                <span>Cookies</span>
+              </button>
             </li>
-            <li
-              className={`nav-item ${activeTab === 'queue' ? 'active' : ''}`}
-              onClick={() => setActiveTab('queue')}
-            >
-              {/* Log Queue Icon */}
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="4 17 10 11 4 5" />
-                <line x1="12" y1="19" x2="20" y2="19" />
-              </svg>
-              Active Tasks
-              {stats.activeTasks > 0 && (
-                <span
-                  style={{
-                    marginLeft: 'auto',
-                    background: 'var(--status-info)',
-                    color: 'white',
-                    fontSize: '0.75rem',
-                    fontWeight: 700,
-                    padding: '0.15rem 0.45rem',
-                    borderRadius: '10px',
-                    animation: 'pulsePulse 1.5s infinite'
-                  }}
-                >
-                  {stats.activeTasks}
-                </span>
-              )}
+            <li>
+              <button
+                type="button"
+                className={`nav-item ${activeTab === 'queue' ? 'active' : ''}`}
+                onClick={() => setActiveTab('queue')}
+                aria-current={activeTab === 'queue' ? 'page' : undefined}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="4 17 10 11 4 5" />
+                  <line x1="12" y1="19" x2="20" y2="19" />
+                </svg>
+                <span>Tasks</span>
+                {stats.activeTasks > 0 && <span className="nav-count">{stats.activeTasks}</span>}
+              </button>
             </li>
           </ul>
         </nav>
@@ -193,15 +191,13 @@ export default function App() {
         </div>
       </aside>
 
-      {/* MAIN DASHBOARD CONTENT AREA */}
       <main className="main-content">
         <header className="dashboard-header">
           <h1 className="page-title">{getPageTitle()}</h1>
         </header>
 
-        {/* TOP DASHBOARD STATS CARD GRID */}
         <section className="stats-grid">
-          <div className="stat-card" onClick={() => setActiveTab('channels')} style={{ cursor: 'pointer' }}>
+          <button type="button" className="stat-card" onClick={() => setActiveTab('channels')}>
             <div className="stat-icon">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
@@ -212,9 +208,9 @@ export default function App() {
               <span className="stat-value">{stats.monitoredChannels}</span>
               <span className="stat-label">Monitored Profiles</span>
             </div>
-          </div>
+          </button>
 
-          <div className="stat-card" onClick={() => setActiveTab('browser')} style={{ cursor: 'pointer' }}>
+          <button type="button" className="stat-card" onClick={() => setActiveTab('browser')}>
             <div className="stat-icon">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <polygon points="23 7 16 12 23 17 23 7" />
@@ -225,9 +221,9 @@ export default function App() {
               <span className="stat-value">{stats.totalVideos}</span>
               <span className="stat-label">Archived Videos</span>
             </div>
-          </div>
+          </button>
 
-          <div className="stat-card" onClick={() => setActiveTab('browser')} style={{ cursor: 'pointer' }}>
+          <button type="button" className="stat-card" onClick={() => setActiveTab('browser')}>
             <div className="stat-icon">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
@@ -239,9 +235,9 @@ export default function App() {
               <span className="stat-value">{stats.totalSlideshows}</span>
               <span className="stat-label">Archived Slideshows</span>
             </div>
-          </div>
+          </button>
 
-          <div className="stat-card" onClick={() => setActiveTab('queue')} style={{ cursor: 'pointer' }}>
+          <button type="button" className="stat-card" onClick={() => setActiveTab('queue')}>
             <div className="stat-icon">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <line x1="22" y1="12" x2="2" y2="12" />
@@ -254,11 +250,10 @@ export default function App() {
               <span className="stat-value">{stats.activeTasks}</span>
               <span className="stat-label">Active Tasks</span>
             </div>
-          </div>
+          </button>
         </section>
 
-        {/* ACTIVE TAB CONTENT VIEW */}
-        <section style={{ animation: 'fadeIn 0.3s ease-out' }}>
+        <section className="content-view">
           {renderContent()}
         </section>
       </main>
