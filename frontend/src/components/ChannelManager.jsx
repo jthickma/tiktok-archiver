@@ -170,7 +170,30 @@ export default function ChannelManager({ onNavigateToQueue }) {
                     <td data-label="Last Scanned" style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
                       {formatDate(chan.last_checked_at)}
                     </td>
-                    <td data-label="Actions">
+                    <td data-label="Actions" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                      {chan.downloaded_count > 0 && (
+                        <a
+                          href={`/api/posts/zip?channel_id=${encodeURIComponent(chan.id)}`}
+                          className="btn btn-secondary"
+                          style={{
+                            padding: '0.4rem 0.85rem',
+                            fontSize: '0.85rem',
+                            borderColor: 'var(--accent-purple)',
+                            color: 'var(--text-primary)',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            textDecoration: 'none'
+                          }}
+                          title={`Zip & Download all ${chan.downloaded_count} posts for @${chan.username}`}
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '0.25rem' }}>
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                            <polyline points="7 10 12 15 17 10" />
+                            <line x1="12" y1="15" x2="12" y2="3" />
+                          </svg>
+                          Zip Archive
+                        </a>
+                      )}
                       {chan.is_monitored ? (
                         <button
                           type="button"

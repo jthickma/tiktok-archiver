@@ -3,6 +3,7 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import archiver from 'archiver';
 import { initDb, dbAll, dbRun, dbGet } from './database.js';
 import { enqueue, processQueue } from './queue.js';
 import { extractUsername } from './downloader.js';
@@ -253,6 +254,111 @@ app.get('/api/posts', async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ZIP Archive API
+app.get('/api/posts/zip', async (req, res) => {
+  const { channel_id } = req.query;
+  try {
+    let posts;
+    let zipName = 'tiktok_archive_all.zip';
+
+    if (channel_id) {
+      const channel = await dbGet('SELECT * FROM channels WHERE id = ?', [channel_id]);
+      const name = channel ? channel.username : channel_id.replace(/^@/, '');
+      posts = await dbAll('SELECT * FROM posts WHERE channel_id = ?', [channel_id]);
+      zipName = `tiktok_archive_${name}.zip`;
+    } else {
+      posts = await dbAll('SELECT * FROM posts');
+    }
+
+    if (!posts || posts.length === 0) {
+      return res.status(404).json({ error: 'No posts found to archive' });
+    }
+
+    // Set download headers
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${zipName}"`);
+
+    const archive = archiver('zip', { zlib: { level: 9 } });
+
+    archive.on('warning', (err) => {
+      if (err.code === 'ENOENT') {
+        console.warn('[ZIP Warning]', err);
+      } else {
+        throw err;
+      }
+    });
+
+    archive.on('error', (err) => {
+      console.error('[ZIP Error]', err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    archive.pipe(res);
+
+    for (const post of posts) {
+      if (!post.file_path) continue;
+      const fullPath = path.join(DOWNLOADS_DIR, post.file_path);
+      if (!fs.existsSync(fullPath)) {
+        console.warn(`[ZIP] Path not found: ${fullPath}, skipping...`);
+        continue;
+      }
+
+      const stats = fs.statSync(fullPath);
+      const cleanChannelId = post.channel_id.replace(/^@/, '');
+      
+      if (stats.isDirectory()) {
+        archive.directory(fullPath, `${cleanChannelId}/${path.basename(post.file_path)}`);
+      } else {
+        archive.file(fullPath, { name: `${cleanChannelId}/${path.basename(post.file_path)}` });
+      }
+    }
+
+    await archive.finalize();
+  } catch (err) {
+    console.error('[ZIP Endpoint Error]', err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+});
+
+// Post Media File Download API
+app.get('/api/posts/:id/download', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const post = await dbGet('SELECT * FROM posts WHERE id = ?', [id]);
+    if (!post) return res.status(404).json({ error: 'Post not found' });
+    if (!post.file_path) return res.status(400).json({ error: 'No media file associated with this post' });
+
+    const fullPath = path.join(DOWNLOADS_DIR, post.file_path);
+    if (!fs.existsSync(fullPath)) {
+      return res.status(404).json({ error: 'File not found on server' });
+    }
+
+    const stats = fs.statSync(fullPath);
+    if (stats.isDirectory()) {
+      const folderName = path.basename(post.file_path);
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', `attachment; filename="${folderName}.zip"`);
+      
+      const archive = archiver('zip', { zlib: { level: 9 } });
+      archive.pipe(res);
+      archive.directory(fullPath, false);
+      await archive.finalize();
+    } else {
+      const filename = path.basename(post.file_path);
+      res.download(fullPath, filename);
+    }
+  } catch (err) {
+    console.error('[Download Endpoint Error]', err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: err.message });
+    }
   }
 });
 
