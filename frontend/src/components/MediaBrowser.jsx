@@ -17,14 +17,12 @@ export default function MediaBrowser() {
   const [dateTo, setDateTo] = useState('');
   const [missingThumbnail, setMissingThumbnail] = useState(false);
   const [density, setDensity] = useState('compact');
-  const [selectedPosts, setSelectedPosts] = useState(new Set());
   const [activePost, setActivePost] = useState(null);
   const [slides, setSlides] = useState([]);
   const [slideIndex, setSlideIndex] = useState(0);
   const [error, setError] = useState('');
 
   const totalPages = Math.max(1, Math.ceil(total / limit));
-  const selectedCount = selectedPosts.size;
 
   const queryString = useMemo(() => {
     const params = new URLSearchParams({
@@ -50,7 +48,6 @@ export default function MediaBrowser() {
       if (!res.ok) throw new Error(data.error?.message || 'Failed to load archive');
       setPosts(data.posts || []);
       setTotal(data.total || 0);
-      setSelectedPosts(new Set());
     } catch (err) {
       setError(err.message);
     }
@@ -78,15 +75,6 @@ export default function MediaBrowser() {
     setSelectedChannels((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
   };
 
-  const togglePost = (id) => {
-    setSelectedPosts((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
   const openPost = async (post) => {
     setActivePost(post);
     setSlides([]);
@@ -97,13 +85,6 @@ export default function MediaBrowser() {
       setSlides(data.images || []);
     }
   };
-
-  const downloadSelectedZip = () => {
-    if (selectedCount === 0) return;
-    window.location.href = `/api/posts/zip?ids=${encodeURIComponent(Array.from(selectedPosts).join(','))}`;
-  };
-
-  const allOnPageSelected = posts.length > 0 && posts.every((post) => selectedPosts.has(post.id));
 
   return (
     <div className="archive-console">
@@ -171,17 +152,7 @@ export default function MediaBrowser() {
       </div>
 
       <div className="bulk-bar">
-        <label className="check-pill">
-          <input
-            type="checkbox"
-            checked={allOnPageSelected}
-            onChange={() => setSelectedPosts(allOnPageSelected ? new Set() : new Set(posts.map((post) => post.id)))}
-          />
-          Select page
-        </label>
-        <span>{selectedCount} selected / {total} total</span>
-        <button type="button" className="btn btn-secondary" disabled={selectedCount === 0} onClick={downloadSelectedZip}>Zip selected</button>
-        <a className="btn btn-secondary" href={`/api/posts/zip${selectedChannels.length === 1 ? `?channel_id=${encodeURIComponent(selectedChannels[0])}` : ''}`}>Zip view</a>
+        <span>{total} total</span>
       </div>
 
       {posts.length === 0 ? (
@@ -189,10 +160,7 @@ export default function MediaBrowser() {
       ) : (
         <div className={`media-grid density-${density}`}>
           {posts.map((post) => (
-            <article key={post.id} className={`media-card ${selectedPosts.has(post.id) ? 'selected' : ''}`}>
-              <button type="button" className="card-select" onClick={() => togglePost(post.id)} aria-label={`Select ${post.id}`}>
-                {selectedPosts.has(post.id) ? 'x' : ''}
-              </button>
+            <article key={post.id} className="media-card">
               <button type="button" className="media-open" onClick={() => openPost(post)}>
                 <span className="media-thumbnail-wrapper">
                   <img
@@ -210,7 +178,9 @@ export default function MediaBrowser() {
                   <span className="media-meta">{post.upload_date || 'No date'} / downloaded {post.downloaded_at?.slice(0, 10) || 'unknown'}</span>
                 </span>
               </button>
-              <a className="card-download-btn visible" href={`/api/posts/${post.id}/download`} title="Download media" download>DL</a>
+              {post.type !== 'slideshow' && (
+                <a className="card-download-btn visible" href={`/api/posts/${post.id}/download`} title="Download media" download>DL</a>
+              )}
             </article>
           ))}
         </div>
@@ -247,7 +217,9 @@ export default function MediaBrowser() {
             <div className="modal-body">
               <div className="modal-author-row">
                 <strong>@{activePost.channel_id.replace(/^@/, '')}</strong>
-                <a href={`/api/posts/${activePost.id}/download`} className="btn btn-secondary" download>Download</a>
+                {activePost.type !== 'slideshow' && (
+                  <a href={`/api/posts/${activePost.id}/download`} className="btn btn-secondary" download>Download</a>
+                )}
               </div>
               <p>{activePost.description || activePost.title}</p>
             </div>

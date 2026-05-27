@@ -8,7 +8,7 @@ The app already has a coherent core: profiles are monitored, jobs persist in SQL
 
 - Queue recovery is incomplete after process crashes.
 - Validation is thin around URLs, IDs, pagination, and file access.
-- Backend modules are shallow in places: routing, synchronization, ZIP creation, monitor scheduling, and validation all live in `backend/index.js`.
+- Backend modules are shallow in places: routing, synchronization, monitor scheduling, and validation all live in `backend/index.js`.
 - The frontend is useful but optimized like a showcase dashboard rather than a dense archive-management tool.
 
 
@@ -51,7 +51,7 @@ Files:
 
 Problem:
 
-`backend/index.js` handles routing, profile-file synchronization, monitor scheduling, ZIP streaming, input normalization, and static serving. The interface is broad and the implementation changes for unrelated reasons.
+`backend/index.js` handles routing, profile-file synchronization, monitor scheduling, input normalization, and static serving. The interface is broad and the implementation changes for unrelated reasons.
 
 Recommendation:
 
@@ -59,7 +59,7 @@ Introduce deeper modules:
 
 - `channels.js`: normalize profile input, sync `channels.txt`, add/remove/reactivate channels.
 - `posts.js`: search, count, detail lookup, relative media path helpers.
-- `archives.js`: ZIP creation for one post, one channel, or all posts.
+- `archives.js`: safe media file download handling.
 - `monitor.js`: background scan scheduling and enqueue policy.
 - `validation.js`: request parsing, pagination limits, ID/URL validation.
 
@@ -330,7 +330,7 @@ Add:
 - saved views
 - "missing thumbnail" and "failed download" filters
 - infinite scroll or virtualized grid
-- selectable cards and bulk ZIP/download actions
+- selectable cards and bulk media-management actions
 
 Benefits:
 
@@ -515,11 +515,11 @@ Files:
 
 Problem:
 
-Archive path resolution, post lookup, slideshow file listing, single-post downloads, and ZIP streaming are scattered between route handlers and downloader output assumptions.
+Archive path resolution, post lookup, slideshow file listing, and single-post downloads are scattered between route handlers and downloader output assumptions.
 
 Solution:
 
-Create an archive module responsible for relative path validation, post media lookup, slideshow image enumeration, and ZIP stream assembly.
+Create an archive module responsible for relative path validation, post media lookup, and slideshow image enumeration.
 
 Benefits:
 

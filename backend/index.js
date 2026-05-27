@@ -20,7 +20,7 @@ import { createChannelRegistry } from './channels.js';
 import { detectUrlType } from './identity.js';
 import { createMonitor } from './monitor.js';
 import { getPost, getPostSlideshowImages, searchPosts } from './posts.js';
-import { sendPostMedia, streamPostsZip } from './archives.js';
+import { sendPostMedia } from './archives.js';
 import { getSystemStatus } from './status.js';
 import { ApiError, parseId, parsePostsQuery, requireBodyString, sendError } from './validation.js';
 import { logger } from './logger.js';
@@ -85,11 +85,6 @@ app.delete('/api/channels/:id', asyncRoute(async (req, res) => {
 
 app.get('/api/posts', asyncRoute(async (req, res) => {
   res.json(await searchPosts(parsePostsQuery(req.query)));
-}));
-
-app.get('/api/posts/zip', asyncRoute(async (req, res) => {
-  const ids = String(req.query.ids || '').split(',').map((id) => id.trim()).filter(Boolean).slice(0, 500);
-  await streamPostsZip({ res, downloadsDir: DOWNLOADS_DIR, channelId: req.query.channel_id || '', ids });
 }));
 
 app.get('/api/posts/:id/download', asyncRoute(async (req, res) => {

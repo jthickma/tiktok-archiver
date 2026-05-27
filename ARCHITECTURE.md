@@ -6,7 +6,7 @@ This document describes the current architecture as implemented in the repositor
 
 TikTok Archiver is a two-part web application:
 
-- A Node/Express backend owns persistence, queue processing, file downloads, file serving, ZIP creation, and the periodic monitor.
+- A Node/Express backend owns persistence, queue processing, file downloads, file serving, and the periodic monitor.
 - A React/Vite frontend owns navigation, archive browsing, profile management, cookie editing, and queue visibility.
 
 The backend is the only process that talks to SQLite, `yt-dlp`, `gallery-dl`, and the filesystem. The frontend calls the backend with relative `/api/*` and `/media/*` URLs.
@@ -54,7 +54,6 @@ Important module interfaces:
 - `GET /api/posts`
 - `GET /api/posts/:id`
 - `GET /api/posts/:id/download`
-- `GET /api/posts/zip`
 - `POST /api/download-url`
 - `GET /api/queue`
 - `GET /api/queue/:id/logs`
@@ -207,7 +206,7 @@ Responsibilities:
 - Render media cards.
 - Open video and slideshow modals.
 - Provide keyboard navigation inside the active media viewer.
-- Trigger ZIP downloads.
+- Trigger individual video downloads.
 
 The video player is implemented inside this file, including controls, keyboard shortcuts, fullscreen support, volume, timeline, and speed selection.
 
@@ -220,7 +219,6 @@ Responsibilities:
 - List all known channels and monitoring status.
 - Add or reactivate monitored profiles.
 - Stop monitoring profiles without deleting archived media.
-- Link to per-profile ZIP export.
 
 ### On-Demand Downloader
 
@@ -282,10 +280,7 @@ The backend serves the entire `DOWNLOADS_DIR` under `/media`. Database paths are
 Download routes:
 
 - A video post downloads its media file directly.
-- A slideshow post streams a ZIP of the slideshow folder.
-- The archive ZIP endpoint streams all posts or posts for one channel.
-
-ZIP files are generated on request and are not cached.
+- Slideshow posts are previewed through `/api/posts/:id` and `/media`; directory downloads are disabled.
 
 ## Deployment Model
 
@@ -304,4 +299,3 @@ The Dockerfile uses two stages:
 - Download tool output is parsed from child-process streams and persisted as text logs.
 - No authentication, authorization, or multi-user model exists.
 - No test suite currently protects queue behavior, downloader command construction, or API contracts.
-

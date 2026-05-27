@@ -10,7 +10,6 @@ TikTok Archiver is a self-hosted media archive for TikTok profiles, individual v
 - Store archive metadata in SQLite at `data/tiktok.db`.
 - Store media files on disk under `downloads/@handle/`.
 - Browse, filter, preview, and download archived media from the web UI.
-- Export a profile archive or the full archive as ZIP.
 - Save TikTok cookies in Netscape `cookies.txt` format for authenticated downloads.
 
 ## Repository Layout
@@ -22,7 +21,7 @@ TikTok Archiver is a self-hosted media archive for TikTok profiles, individual v
 |   |-- database.js     # SQLite connection, migrations, schema creation, database healing
 |   |-- channels.js     # channels.txt and channel registry operations
 |   |-- posts.js        # archive search, filtering, post detail helpers
-|   |-- archives.js     # ZIP streaming and safe media file downloads
+|   |-- archives.js     # safe media file downloads
 |   |-- monitor.js      # background scan scheduling
 |   |-- validation.js   # API query/body parsing and standardized errors
 |   |-- status.js       # health, queue, tool, and storage checks
@@ -167,10 +166,9 @@ The Archive tab shows downloaded posts. You can:
 - Sort by upload date, download date, profile, type, or title.
 - Filter by upload date range or missing thumbnails.
 - Change grid density for desktop or mobile scanning.
-- Select visible cards and export the selection as ZIP.
 - Open videos in the player.
 - Open slideshows in the lightbox.
-- Download one post, one profile ZIP, or the full archive ZIP.
+- Download individual video files.
 
 ### Profiles
 
@@ -207,8 +205,7 @@ On startup, any interrupted `downloading` jobs are recovered back to `pending` w
 | `DELETE` | `/api/channels/:id` | Stop monitoring a profile |
 | `GET` | `/api/posts` | List archived posts with pagination and filters |
 | `GET` | `/api/posts/:id` | Get post details and slideshow image list |
-| `GET` | `/api/posts/:id/download` | Download one post file or slideshow ZIP |
-| `GET` | `/api/posts/zip` | Download full archive, profile ZIP, or selected IDs ZIP |
+| `GET` | `/api/posts/:id/download` | Download one post media file |
 | `POST` | `/api/download-url` | Queue an arbitrary TikTok profile/post URL |
 | `GET` | `/api/queue` | List active and recent jobs |
 | `GET` | `/api/queue/:id/logs` | Read a job log |
