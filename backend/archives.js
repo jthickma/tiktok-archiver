@@ -62,7 +62,7 @@ export const streamPostsZip = async ({ res, downloadsDir, channelId = '', ids = 
   archive.on('warning', (error) => logger.warn('zip warning', { error }));
   archive.on('error', (error) => {
     logger.error('zip stream error', { error });
-    throw error;
+    res.destroy(error);
   });
   archive.pipe(res);
 
