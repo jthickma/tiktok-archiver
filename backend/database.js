@@ -129,14 +129,16 @@ export const initDb = async () => {
     )
   `);
 
-  await dbRun('CREATE INDEX IF NOT EXISTS idx_download_jobs_status_next ON download_jobs (status, next_attempt_at, id)');
-  await dbRun('CREATE INDEX IF NOT EXISTS idx_download_job_logs_job_id ON download_job_logs (job_id, id)');
-
+  // Apply column migrations to pre-existing tables BEFORE creating indexes,
+  // since the indexes below reference columns added here (e.g. next_attempt_at).
   await addColumnIfMissing('download_jobs', 'attempt_count', 'INTEGER DEFAULT 0');
   await addColumnIfMissing('download_jobs', 'max_attempts', 'INTEGER DEFAULT 3');
   await addColumnIfMissing('download_jobs', 'next_attempt_at', 'TEXT');
   await addColumnIfMissing('download_jobs', 'last_error_class', 'TEXT');
   await addColumnIfMissing('download_jobs', 'cancelled_at', 'TEXT');
+
+  await dbRun('CREATE INDEX IF NOT EXISTS idx_download_jobs_status_next ON download_jobs (status, next_attempt_at, id)');
+  await dbRun('CREATE INDEX IF NOT EXISTS idx_download_job_logs_job_id ON download_job_logs (job_id, id)');
 
   await dbRun(
     `INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)`,
