@@ -1,90 +1,21 @@
 # Improvements
 
-This file lists recommended improvements from an extensive review of the current codebase. Items are grouped by priority and area. The highest-value work is security, queue reliability, backend module depth, and a more task-focused archive UI.
+This file lists recommended improvements from an extensive review of the current codebase. Items are grouped by priority and area. The highest-value work is queue reliability, backend module depth, observability, and a more task-focused archive UI.
 
 ## Executive Summary
 
 The app already has a coherent core: profiles are monitored, jobs persist in SQLite, downloads land in predictable folders, and the UI exposes the main workflows. The biggest risks are operational rather than cosmetic:
 
-- The app has no authentication while exposing cookies, downloaded media, job logs, and arbitrary URL submission.
 - Queue recovery is incomplete after process crashes.
 - Validation is thin around URLs, IDs, pagination, and file access.
 - Backend modules are shallow in places: routing, synchronization, ZIP creation, monitor scheduling, and validation all live in `backend/index.js`.
 - The frontend is useful but optimized like a showcase dashboard rather than a dense archive-management tool.
 
-## Priority 0: Security and Data Protection
 
-### 1. Add access control before public exposure
-
-Files:
-
-- `backend/index.js`
-- `frontend/src/App.jsx`
-
-Problem:
-
-The server exposes archived media, TikTok cookies, logs, and download controls without authentication. The open `cors()` configuration also allows browser requests from any origin.
-
-Recommendation:
-
-Add an authentication module with a small interface such as session cookie auth, reverse-proxy header auth, or a single admin password. Restrict CORS to configured origins or disable it in same-origin production.
-
-Benefits:
-
-- Protects private downloads and cookies.
-- Prevents unauthenticated queue abuse.
-- Makes deployment behind a proxy much safer.
-
-### 2. Validate and restrict submitted URLs
-
-Files:
-
-- `backend/index.js`
-- `backend/downloader.js`
-- `backend/queue.js`
-
-Problem:
-
-`POST /api/download-url` accepts arbitrary URLs and passes them to external tools. The child process uses argument arrays, which avoids shell injection, but still allows backend-initiated network requests to unexpected hosts.
-
-Recommendation:
-
-Create a TikTok URL normalization and validation module. Only accept `tiktok.com` and known TikTok short-link hosts if explicitly supported. Reject unsupported protocols, local addresses, malformed handles, and non-TikTok URLs before enqueueing.
-
-Benefits:
-
-- Reduces SSRF-like behavior through downloader tools.
-- Gives the UI immediate, actionable validation errors.
-- Consolidates handle/profile/post detection in one place.
-
-### 3. Protect cookie storage
-
-Files:
-
-- `backend/index.js`
-- `frontend/src/components/CookieEditor.jsx`
-
-Problem:
-
-Cookies are stored as plaintext in `data/cookies.txt` and are fully returned to the browser through `GET /api/cookies`.
-
-Recommendation:
-
-After access control exists, reduce exposure further:
-
-- Return only cookie status metadata by default, not the raw cookie contents.
-- Add an explicit "reveal/edit cookies" action.
-- Set restrictive file permissions when writing `cookies.txt`.
-- Document that backups of `data/` contain sensitive account material.
-
-Benefits:
-
-- Reduces accidental credential exposure.
-- Keeps cookie editing available while making readback safer.
 
 ## Priority 1: Queue Reliability and Backend Logic
 
-### 4. Recover interrupted jobs on startup
+### 1. Recover interrupted jobs on startup
 
 Files:
 
@@ -109,7 +40,7 @@ Benefits:
 - Prevents hidden queue stalls.
 - Creates a testable startup recovery interface.
 
-### 5. Split backend modules around deeper interfaces
+### 2. Split backend modules around deeper interfaces
 
 Files:
 
@@ -138,7 +69,7 @@ Benefits:
 - Improves leverage: route handlers become thin adapters over domain operations.
 - Makes the interface the test surface instead of testing Express routes for every branch.
 
-### 6. Add bounded retries, backoff, and rate controls
+### 3. Add bounded retries, backoff, and rate controls
 
 Files:
 
@@ -166,7 +97,7 @@ Benefits:
 - Handles TikTok/rate-limit instability more gracefully.
 - Makes queue behavior visible and tunable.
 
-### 7. Add explicit job cancellation and pause controls
+### 4. Add explicit job cancellation and pause controls
 
 Files:
 
@@ -193,7 +124,7 @@ Benefits:
 - Gives users control over long downloads.
 - Prevents one bad job from blocking the entire queue indefinitely.
 
-### 8. Normalize post and channel identity consistently
+### 5. Normalize post and channel identity consistently
 
 Files:
 
@@ -223,7 +154,7 @@ Benefits:
 
 ## Priority 2: API, Persistence, and Observability
 
-### 9. Add migrations instead of schema-only initialization
+### 6. Add migrations instead of schema-only initialization
 
 Files:
 
@@ -243,7 +174,7 @@ Benefits:
 - Makes deployments reproducible.
 - Avoids silent drift between old and new installations.
 
-### 10. Add pagination bounds and API error contracts
+### 7. Add pagination bounds and API error contracts
 
 Files:
 
@@ -273,7 +204,7 @@ Benefits:
 - Makes frontend error states consistent.
 - Makes API behavior easier to test.
 
-### 11. Replace unbounded log concatenation
+### 8. Replace unbounded log concatenation
 
 Files:
 
@@ -295,7 +226,7 @@ Benefits:
 - Keeps the queue table lightweight.
 - Supports richer UI log filtering later.
 
-### 12. Add structured application logs
+### 9. Add structured application logs
 
 Files:
 
@@ -320,7 +251,7 @@ Benefits:
 
 ## Priority 3: UI/UX Improvements
 
-### 13. Redesign the app as an archive operations console
+### 10. Redesign the app as an archive operations console
 
 Files:
 
@@ -341,7 +272,7 @@ Move toward a quieter operations-console layout:
 - Dense content tables where comparison matters.
 - Media grid density controls.
 - Fewer oversized panels.
-- Clear status chips for queue, monitor, cookies, and storage.
+- Clear status chips for queue, monitor, downloader tools, and storage.
 
 Benefits:
 
@@ -349,7 +280,7 @@ Benefits:
 - Faster management of large archives.
 - Less visual noise during repeated use.
 
-### 14. Add a real system status surface
+### 11. Add a real system status surface
 
 Files:
 
@@ -358,7 +289,7 @@ Files:
 
 Problem:
 
-The sidebar displays "Server Status: ONLINE" statically. It does not reflect backend health, tool availability, cookie validity, queue health, disk free space, or monitor state.
+The sidebar displays "Server Status: ONLINE" statically. It does not reflect backend health, tool availability, queue health, disk free space, or monitor state.
 
 Recommendation:
 
@@ -372,14 +303,13 @@ Add `GET /api/status` returning:
 - `yt-dlp`, `gallery-dl`, and `ffmpeg` availability
 - data/download directory writability
 - disk free space
-- cookie file present/empty
 
 Benefits:
 
 - Makes failures self-explanatory.
 - Helps users diagnose why downloads are not progressing.
 
-### 15. Improve archive browsing for large collections
+### 12. Improve archive browsing for large collections
 
 Files:
 
@@ -407,7 +337,7 @@ Benefits:
 - Makes the archive useful after thousands of posts.
 - Reduces repetitive profile-by-profile operations.
 
-### 16. Make queue actions first-class
+### 13. Make queue actions first-class
 
 Files:
 
@@ -435,7 +365,7 @@ Benefits:
 - Turns the queue into an operations surface.
 - Reduces the need to restart the container or edit SQLite manually.
 
-### 17. Improve media cards and previews
+### 14. Improve media cards and previews
 
 Files:
 
@@ -464,35 +394,9 @@ Benefits:
 - Better accessibility.
 - Better handling of partial or old archive data.
 
-### 18. Make cookie management safer and clearer
-
-Files:
-
-- `frontend/src/components/CookieEditor.jsx`
-- `backend/index.js`
-
-Problem:
-
-The editor explains cookie export but cannot validate format or show whether cookies work.
-
-Recommendation:
-
-Add:
-
-- format validation before save
-- masked/reveal editing
-- last updated timestamp
-- "test cookies" action using a lightweight metadata call
-- warning when cookies appear expired
-
-Benefits:
-
-- Reduces failed downloads from bad cookie files.
-- Makes sensitive state more deliberate.
-
 ## Priority 4: Testing and Developer Experience
 
-### 19. Add automated tests around core behavior
+### 15. Add automated tests around core behavior
 
 Files:
 
@@ -527,7 +431,7 @@ Benefits:
 - Protects the highest-risk logic.
 - Makes future refactors safe.
 
-### 20. Add linting and formatting
+### 16. Add linting and formatting
 
 Files:
 
@@ -556,7 +460,7 @@ Benefits:
 - Keeps contributions consistent.
 - Catches React hook and accessibility mistakes earlier.
 
-### 21. Add sample environment and operational docs
+### 17. Add sample environment and operational docs
 
 Files:
 
@@ -668,13 +572,10 @@ Benefits:
 
 ## Suggested Implementation Order
 
-1. Add authentication or trusted reverse-proxy access control.
-2. Add URL validation and request validation.
-3. Add queue startup recovery.
-4. Extract channel registry and archive modules.
-5. Add tests around extracted modules.
-6. Add `/api/status` and replace static status UI.
-7. Redesign Archive and Queue screens for dense operations.
-8. Add retries, cancellation, and backoff.
-9. Add migrations and structured logs.
-
+1. Add queue startup recovery.
+2. Extract channel registry and archive modules.
+3. Add tests around extracted modules.
+4. Add `/api/status` and replace static status UI.
+5. Redesign Archive and Queue screens for dense operations.
+6. Add retries, cancellation, and backoff.
+7. Add migrations and structured logs.
