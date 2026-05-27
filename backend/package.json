@@ -4,7 +4,9 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "lint": "node --check index.js && node --check database.js && node --check downloader.js && node --check queue.js && node --check channels.js && node --check posts.js && node --check archives.js && node --check monitor.js && node --check status.js && node --check validation.js && node --check identity.js && node --check logger.js",
+    "test": "npm run lint"
   },
   "dependencies": {
     "archiver": "^8.0.0",

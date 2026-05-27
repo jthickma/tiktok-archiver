@@ -36,7 +36,7 @@ export default function ChannelManager({ onNavigateToQueue }) {
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || 'Failed to add profile');
+        throw new Error(data.error?.message || data.error || 'Failed to add profile');
       }
 
       setNewUrl('');

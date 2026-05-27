@@ -18,8 +18,14 @@ TikTok Archiver is a self-hosted media archive for TikTok profiles, individual v
 ```text
 .
 |-- backend/
-|   |-- index.js        # Express server, REST API, static frontend hosting, monitor scheduler
-|   |-- database.js     # SQLite connection, schema creation, database healing
+|   |-- index.js        # Express server and thin REST route adapters
+|   |-- database.js     # SQLite connection, migrations, schema creation, database healing
+|   |-- channels.js     # channels.txt and channel registry operations
+|   |-- posts.js        # archive search, filtering, post detail helpers
+|   |-- archives.js     # ZIP streaming and safe media file downloads
+|   |-- monitor.js      # background scan scheduling
+|   |-- validation.js   # API query/body parsing and standardized errors
+|   |-- status.js       # health, queue, tool, and storage checks
 |   |-- downloader.js   # yt-dlp/gallery-dl integration and post persistence
 |   `-- queue.js        # Persistent download queue runner
 |-- frontend/
@@ -109,6 +115,8 @@ The backend uses these environment variables:
 | `DOWNLOADS_DIR` | `./downloads` relative to repo root in local mode | Stores downloaded media |
 | `NODE_ENV` | unset locally, `production` in Docker | Runtime mode |
 
+Copy `.env.example` when you want a documented starting point for container or reverse-proxy deployments.
+
 ## Persistent Files
 
 ### `data/channels.txt`
@@ -153,10 +161,14 @@ Video posts are stored as files. Slideshow posts are stored as folders named aft
 
 The Archive tab shows downloaded posts. You can:
 
-- Search titles and descriptions.
-- Filter by profile.
+- Search titles, descriptions, and profiles.
+- Filter by one or more profiles.
 - Filter by all media, videos, or slideshows.
-- Open videos in the custom player.
+- Sort by upload date, download date, profile, type, or title.
+- Filter by upload date range or missing thumbnails.
+- Change grid density for desktop or mobile scanning.
+- Select visible cards and export the selection as ZIP.
+- Open videos in the player.
 - Open slideshows in the lightbox.
 - Download one post, one profile ZIP, or the full archive ZIP.
 
@@ -181,28 +193,38 @@ The Cookies tab reads and writes `data/cookies.txt`. Use Netscape cookie format 
 
 ### Tasks
 
-The Tasks tab polls queue state and job logs. Active jobs are shown separately from recent completed or failed jobs.
+The Tasks tab polls queue state and job logs. It supports pause/resume, active job cancellation, retrying failed or cancelled jobs, deleting history entries, and clearing completed entries.
+
+On startup, any interrupted `downloading` jobs are recovered back to `pending` with a recovery log entry. Failed jobs retry with bounded exponential backoff unless the failure is classified as a validation/cancellation error.
 
 ## API Overview
 
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/api/channels` | List channels with archive counts |
+| `GET` | `/api/status` | Server, queue, monitor, tool, and storage status |
 | `POST` | `/api/channels` | Add or reactivate a monitored profile |
 | `DELETE` | `/api/channels/:id` | Stop monitoring a profile |
 | `GET` | `/api/posts` | List archived posts with pagination and filters |
 | `GET` | `/api/posts/:id` | Get post details and slideshow image list |
 | `GET` | `/api/posts/:id/download` | Download one post file or slideshow ZIP |
-| `GET` | `/api/posts/zip` | Download full archive or profile ZIP |
+| `GET` | `/api/posts/zip` | Download full archive, profile ZIP, or selected IDs ZIP |
 | `POST` | `/api/download-url` | Queue an arbitrary TikTok profile/post URL |
 | `GET` | `/api/queue` | List active and recent jobs |
 | `GET` | `/api/queue/:id/logs` | Read a job log |
+| `POST` | `/api/queue/:id/cancel` | Cancel a pending or active job |
+| `POST` | `/api/queue/:id/retry` | Requeue a failed or cancelled job |
+| `DELETE` | `/api/queue/:id` | Delete a non-active queue entry |
+| `POST` | `/api/queue/pause` | Pause queue processing |
+| `POST` | `/api/queue/resume` | Resume queue processing |
+| `DELETE` | `/api/queue/history/completed` | Clear completed and cancelled history |
 | `GET` | `/api/cookies` | Read stored cookies |
 | `POST` | `/api/cookies` | Save stored cookies |
 
 ## Operational Notes
 
 - The queue currently runs in-process and processes one job at a time.
+- Job logs are kept in `download_job_logs` and the legacy `log_output` field is capped to avoid unbounded row growth.
 - A background monitor starts immediately on boot and repeats every six hours.
 - The server serves `/media/*` directly from `DOWNLOADS_DIR`.
 - Production frontend files are served by the backend when `frontend/dist` exists.
@@ -215,4 +237,3 @@ npm run build:frontend
 ```
 
 The backend will serve `frontend/dist` automatically when it exists.
-

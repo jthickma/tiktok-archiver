@@ -2,6 +2,7 @@ import sqlite3 from 'sqlite3';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { logger } from './logger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -43,8 +44,28 @@ export const dbAll = (sql, params = []) => {
   });
 };
 
+const tableColumns = async (tableName) => {
+  const columns = await dbAll(`PRAGMA table_info(${tableName})`);
+  return new Set(columns.map((column) => column.name));
+};
+
+const addColumnIfMissing = async (tableName, columnName, definition) => {
+  const columns = await tableColumns(tableName);
+  if (!columns.has(columnName)) {
+    await dbRun(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+    logger.info('database column added', { table: tableName, column: columnName });
+  }
+};
+
 export const initDb = async () => {
-  console.log(`[DB] Initializing SQLite database at: ${DB_PATH}`);
+  logger.info('initializing sqlite database', { path: DB_PATH });
+
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      version TEXT PRIMARY KEY,
+      applied_at TEXT NOT NULL
+    )
+  `);
 
   // Create Channels table
   await dbRun(`
@@ -82,17 +103,47 @@ export const initDb = async () => {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       url TEXT NOT NULL UNIQUE,
       type TEXT NOT NULL, -- 'channel' or 'post'
-      status TEXT NOT NULL, -- 'pending', 'downloading', 'completed', 'failed'
+      status TEXT NOT NULL, -- 'pending', 'downloading', 'completed', 'failed', 'cancelled'
       progress INTEGER DEFAULT 0,
       log_output TEXT DEFAULT '',
       error_message TEXT,
       created_at TEXT NOT NULL,
       started_at TEXT,
-      completed_at TEXT
+      completed_at TEXT,
+      attempt_count INTEGER DEFAULT 0,
+      max_attempts INTEGER DEFAULT 3,
+      next_attempt_at TEXT,
+      last_error_class TEXT,
+      cancelled_at TEXT
     )
   `);
 
-  console.log('[DB] SQLite database initialized successfully.');
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS download_job_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      job_id INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      level TEXT NOT NULL,
+      message TEXT NOT NULL,
+      FOREIGN KEY (job_id) REFERENCES download_jobs (id) ON DELETE CASCADE
+    )
+  `);
+
+  await dbRun('CREATE INDEX IF NOT EXISTS idx_download_jobs_status_next ON download_jobs (status, next_attempt_at, id)');
+  await dbRun('CREATE INDEX IF NOT EXISTS idx_download_job_logs_job_id ON download_job_logs (job_id, id)');
+
+  await addColumnIfMissing('download_jobs', 'attempt_count', 'INTEGER DEFAULT 0');
+  await addColumnIfMissing('download_jobs', 'max_attempts', 'INTEGER DEFAULT 3');
+  await addColumnIfMissing('download_jobs', 'next_attempt_at', 'TEXT');
+  await addColumnIfMissing('download_jobs', 'last_error_class', 'TEXT');
+  await addColumnIfMissing('download_jobs', 'cancelled_at', 'TEXT');
+
+  await dbRun(
+    `INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)`,
+    ['001_initial_and_queue_controls', new Date().toISOString()]
+  );
+
+  logger.info('sqlite database initialized');
   
   // Run database healing to fix any existing corrupt/numeric channel mappings
   await healDatabase();
@@ -109,16 +160,16 @@ const extractUsernameFromUrl = (url) => {
 };
 
 export const healDatabase = async () => {
-  console.log('[DB-Healing] Checking for database inconsistencies...');
+  logger.info('database healing check started');
   try {
     // 1. Fetch all posts
     const posts = await dbAll('SELECT id, channel_id, url FROM posts');
-    console.log(`[DB-Healing] Scanning ${posts.length} posts for incorrect channel links...`);
+    logger.info('database healing posts scanned', { count: posts.length });
 
     for (const post of posts) {
       const correctChannelId = extractUsernameFromUrl(post.url);
       if (correctChannelId && correctChannelId !== post.channel_id) {
-        console.log(`[DB-Healing] Found post ${post.id} linked to incorrect channel_id "${post.channel_id}". Correct is "${correctChannelId}".`);
+        logger.warn('post linked to incorrect channel', { post_id: post.id, channel_id: post.channel_id, correct_channel_id: correctChannelId });
         
         // Retrieve details from incorrect channel if it exists
         const oldChannel = await dbGet('SELECT * FROM channels WHERE id = ?', [post.channel_id]);
@@ -139,7 +190,7 @@ export const healDatabase = async () => {
               isMonitored
             ]
           );
-          console.log(`[DB-Healing] Created correct channel: ${correctChannelId}`);
+          logger.info('database healing created channel', { channel_id: correctChannelId });
         } else if (oldChannel) {
           // If old channel was monitored, make sure correct channel is monitored too
           if (oldChannel.is_monitored === 1) {
@@ -153,7 +204,7 @@ export const healDatabase = async () => {
 
         // Update the post to link to the correct channel
         await dbRun('UPDATE posts SET channel_id = ? WHERE id = ?', [correctChannelId, post.id]);
-        console.log(`[DB-Healing] Re-linked post ${post.id} to ${correctChannelId}.`);
+        logger.info('database healing relinked post', { post_id: post.id, channel_id: correctChannelId });
       }
     }
 
@@ -170,13 +221,13 @@ export const healDatabase = async () => {
         
         if (postCount === 0) {
           await dbRun('DELETE FROM channels WHERE id = ?', [chan.id]);
-          console.log(`[DB-Healing] Deleted orphaned numeric channel: ${chan.id}`);
+          logger.info('database healing deleted orphaned numeric channel', { channel_id: chan.id });
         }
       }
     }
 
-    console.log('[DB-Healing] Database healing check completed.');
+    logger.info('database healing check completed');
   } catch (err) {
-    console.error('[DB-Healing] Error during database healing:', err);
+    logger.error('database healing failed', { error: err });
   }
 };

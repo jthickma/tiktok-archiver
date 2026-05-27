@@ -36,7 +36,7 @@ export default function CookieEditor() {
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || 'Failed to save cookies');
+        throw new Error(data.error?.message || data.error || 'Failed to save cookies');
       }
 
       setMessage('Cookies saved successfully! They will now be used for all future downloads.');

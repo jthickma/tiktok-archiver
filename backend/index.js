@@ -3,10 +3,27 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { ZipArchive } from 'archiver';
-import { initDb, dbAll, dbRun, dbGet } from './database.js';
-import { enqueue, processQueue } from './queue.js';
-import { extractUsername } from './downloader.js';
+import { initDb, dbAll, dbGet } from './database.js';
+import {
+  cancelJob,
+  clearCompletedJobs,
+  deleteJob,
+  enqueue,
+  getQueueState,
+  pauseQueue,
+  processQueue,
+  recoverInterruptedJobs,
+  resumeQueue,
+  retryJob
+} from './queue.js';
+import { createChannelRegistry } from './channels.js';
+import { detectUrlType } from './identity.js';
+import { createMonitor } from './monitor.js';
+import { getPost, getPostSlideshowImages, searchPosts } from './posts.js';
+import { sendPostMedia, streamPostsZip } from './archives.js';
+import { getSystemStatus } from './status.js';
+import { ApiError, parseId, parsePostsQuery, requireBodyString, sendError } from './validation.js';
+import { logger } from './logger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -14,525 +31,211 @@ const PORT = process.env.PORT || 8080;
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '../data');
 const DOWNLOADS_DIR = process.env.DOWNLOADS_DIR || path.join(__dirname, '../downloads');
 const FRONTEND_DIST_DIR = path.join(__dirname, '../frontend/dist');
-
 const CHANNELS_FILE = path.join(DATA_DIR, 'channels.txt');
 const COOKIES_FILE = path.join(DATA_DIR, 'cookies.txt');
+const startedAt = new Date().toISOString();
 
 const app = express();
-app.set('trust proxy', 1); // trust first proxy for secure headers/cookies behind GoDoxy
+app.set('trust proxy', 1);
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '2mb' }));
 
-// Ensure crucial folders exist
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
+fs.mkdirSync(DATA_DIR, { recursive: true });
+fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
 
-// Serve downloaded media files statically at /media
 app.use('/media', express.static(DOWNLOADS_DIR));
 
-// -------------------------------------------------------------
-// CHANNELS.TXT SYNCHRONIZATION HELPERS
-// -------------------------------------------------------------
+const channelRegistry = createChannelRegistry({ channelsFile: CHANNELS_FILE });
+const monitor = createMonitor({ channelRegistry, enqueue });
 
-// Sync channels.txt -> Database (Read from file on startup/scan)
-const syncChannelsTxtToDb = async () => {
-  console.log('[Sync] Synchronizing channels.txt to Database...');
-  
-  if (!fs.existsSync(CHANNELS_FILE)) {
-    fs.writeFileSync(CHANNELS_FILE, '', 'utf8');
-    console.log('[Sync] Created empty channels.txt');
-    return;
-  }
-
-  const content = fs.readFileSync(CHANNELS_FILE, 'utf8');
-  const lines = content.split('\n')
-    .map(line => line.trim())
-    .filter(line => line !== '' && !line.startsWith('#'));
-
-  const fileChannels = [];
-
-  for (const line of lines) {
-    let url = line;
-    // Prepend domain if only @username is provided
-    if (url.startsWith('@')) {
-      url = `https://www.tiktok.com/${url}`;
-    } else if (!url.startsWith('http')) {
-      url = `https://www.tiktok.com/@${url}`;
-    }
-
-    try {
-      const username = extractUsername(url);
-      fileChannels.push({ id: username, url });
-
-      // Check if channel already exists
-      const existing = await dbGet('SELECT * FROM channels WHERE id = ?', [username]);
-      if (existing) {
-        // If it exists but is not monitored, mark it as monitored
-        if (existing.is_monitored !== 1) {
-          await dbRun('UPDATE channels SET is_monitored = 1 WHERE id = ?', [username]);
-        }
-      } else {
-        // Insert new monitored channel
-        await dbRun(
-          'INSERT INTO channels (id, username, url, created_at, is_monitored) VALUES (?, ?, ?, ?, 1)',
-          [username, username.replace(/^@/, ''), url, new Date().toISOString()]
-        );
-        console.log(`[Sync] Added new channel from channels.txt: ${username}`);
-      }
-    } catch (err) {
-      console.error(`[Sync] Error parsing line "${line}":`, err.message);
-    }
-  }
-
-  // Find channels in DB that are marked monitored but are NOT in channels.txt anymore
-  const dbMonitored = await dbAll('SELECT id FROM channels WHERE is_monitored = 1');
-  const fileChannelIds = fileChannels.map(c => c.id);
-
-  for (const dbChan of dbMonitored) {
-    if (!fileChannelIds.includes(dbChan.id)) {
-      await dbRun('UPDATE channels SET is_monitored = 0 WHERE id = ?', [dbChan.id]);
-      console.log(`[Sync] Stopped monitoring channel (removed from channels.txt): ${dbChan.id}`);
-    }
+const asyncRoute = (handler) => async (req, res) => {
+  try {
+    await handler(req, res);
+  } catch (error) {
+    logger.error('api route failed', { path: req.path, method: req.method, error });
+    if (!res.headersSent) sendError(res, error);
   }
 };
 
-// Sync Database -> channels.txt (Rewrite file when changed via Web UI)
-const syncDbToChannelsTxt = async () => {
-  console.log('[Sync] Updating channels.txt from Database...');
-  const monitored = await dbAll('SELECT url FROM channels WHERE is_monitored = 1');
-  const content = monitored.map(c => c.url).join('\n') + '\n';
-  fs.writeFileSync(CHANNELS_FILE, content, 'utf8');
-};
+app.get('/api/status', asyncRoute(async (req, res) => {
+  res.json(await getSystemStatus({
+    startedAt,
+    dataDir: DATA_DIR,
+    downloadsDir: DOWNLOADS_DIR,
+    queueState: getQueueState(),
+    monitorState: monitor.state()
+  }));
+}));
 
-// -------------------------------------------------------------
-// BACKGROUND MONITOR SERVICE
-// -------------------------------------------------------------
-const runBackgroundMonitor = async () => {
-  console.log('[Monitor] Running background channel scanner...');
-  try {
-    // 1. Sync channels.txt first in case of manual external edits
-    await syncChannelsTxtToDb();
+app.get('/api/channels', asyncRoute(async (req, res) => {
+  res.json(await channelRegistry.listChannels());
+}));
 
-    // 2. Fetch all monitored profiles
-    const monitored = await dbAll('SELECT * FROM channels WHERE is_monitored = 1');
-    console.log(`[Monitor] Scanning ${monitored.length} profiles...`);
+app.post('/api/channels', asyncRoute(async (req, res) => {
+  const url = requireBodyString(req.body, 'url');
+  const channel = await channelRegistry.monitorProfile(url);
+  await enqueue(channel.url, 'channel');
+  res.json({ message: 'Channel added and monitoring queued', channelId: channel.id });
+}));
 
-    for (const channel of monitored) {
-      console.log(`[Monitor] Queueing scan for: ${channel.id}`);
-      await enqueue(channel.url, 'channel');
-      
-      // Update check time
-      await dbRun(
-        'UPDATE channels SET last_checked_at = ? WHERE id = ?',
-        [new Date().toISOString(), channel.id]
-      );
-    }
-  } catch (err) {
-    console.error('[Monitor] Error in background scanner:', err);
-  }
-};
+app.delete('/api/channels/:id', asyncRoute(async (req, res) => {
+  await channelRegistry.stopMonitoring(req.params.id);
+  res.json({ message: `Stopped monitoring channel: ${req.params.id}` });
+}));
 
-// -------------------------------------------------------------
-// REST API ENDPOINTS
-// -------------------------------------------------------------
+app.get('/api/posts', asyncRoute(async (req, res) => {
+  res.json(await searchPosts(parsePostsQuery(req.query)));
+}));
 
-// Channels API
-app.get('/api/channels', async (req, res) => {
-  try {
-    const channels = await dbAll(`
-      SELECT c.*, COUNT(p.id) as downloaded_count 
-      FROM channels c 
-      LEFT JOIN posts p ON c.id = p.channel_id 
-      GROUP BY c.id
-      ORDER BY c.is_monitored DESC, c.id ASC
-    `);
-    res.json(channels);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+app.get('/api/posts/zip', asyncRoute(async (req, res) => {
+  const ids = String(req.query.ids || '').split(',').map((id) => id.trim()).filter(Boolean).slice(0, 500);
+  await streamPostsZip({ res, downloadsDir: DOWNLOADS_DIR, channelId: req.query.channel_id || '', ids });
+}));
 
-app.post('/api/channels', async (req, res) => {
-  const { url } = req.body;
-  if (!url) return res.status(400).json({ error: 'URL is required' });
+app.get('/api/posts/:id/download', asyncRoute(async (req, res) => {
+  await sendPostMedia({ res, downloadsDir: DOWNLOADS_DIR, post: await getPost(req.params.id) });
+}));
 
-  try {
-    let normalizedUrl = url.trim();
-    if (normalizedUrl.startsWith('@')) {
-      normalizedUrl = `https://www.tiktok.com/${normalizedUrl}`;
-    } else if (!normalizedUrl.startsWith('http')) {
-      normalizedUrl = `https://www.tiktok.com/@${normalizedUrl}`;
-    }
+app.get('/api/posts/:id', asyncRoute(async (req, res) => {
+  const post = await getPost(req.params.id);
+  if (!post) throw new ApiError(404, 'NOT_FOUND', 'Post not found');
+  res.json({
+    post,
+    images: await getPostSlideshowImages(post, DOWNLOADS_DIR, fs, path)
+  });
+}));
 
-    const username = extractUsername(normalizedUrl);
+app.post('/api/download-url', asyncRoute(async (req, res) => {
+  const input = requireBodyString(req.body, 'url');
+  const target = detectUrlType(input);
+  await enqueue(target.url, target.type);
+  res.json({ message: 'URL added to download queue', type: target.type });
+}));
 
-    // Upsert channel
-    const existing = await dbGet('SELECT * FROM channels WHERE id = ?', [username]);
-    if (existing) {
-      await dbRun('UPDATE channels SET is_monitored = 1, url = ? WHERE id = ?', [normalizedUrl, username]);
-    } else {
-      await dbRun(
-        'INSERT INTO channels (id, username, url, created_at, is_monitored) VALUES (?, ?, ?, ?, 1)',
-        [username, username.replace(/^@/, ''), normalizedUrl, new Date().toISOString()]
-      );
-    }
-
-    // Sync to channels.txt file
-    await syncDbToChannelsTxt();
-
-    // Trigger immediate download/scan job
-    await enqueue(normalizedUrl, 'channel');
-
-    res.json({ message: 'Channel added and monitoring queued', channelId: username });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.delete('/api/channels/:id', async (req, res) => {
-  const { id } = req.params; // e.g. @username
-  try {
-    await dbRun('UPDATE channels SET is_monitored = 0 WHERE id = ?', [id]);
-    await syncDbToChannelsTxt();
-    res.json({ message: `Stopped monitoring channel: ${id}` });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Posts API
-app.get('/api/posts', async (req, res) => {
-  const { channel_id, type, search, page = 1, limit = 20 } = req.query;
-  const offset = (page - 1) * limit;
-  
-  let query = 'SELECT * FROM posts WHERE 1=1';
+app.get('/api/queue', asyncRoute(async (req, res) => {
+  const status = String(req.query.status || '');
+  const type = String(req.query.type || '');
+  const where = [];
   const params = [];
-
-  if (channel_id) {
-    query += ' AND channel_id = ?';
-    params.push(channel_id);
+  if (status) {
+    where.push('status = ?');
+    params.push(status);
   }
   if (type) {
-    query += ' AND type = ?';
+    where.push('type = ?');
     params.push(type);
   }
-  if (search) {
-    query += ' AND (title LIKE ? OR description LIKE ?)';
-    params.push(`%${search}%`, `%${search}%`);
-  }
+  const suffix = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const active = await dbAll(
+    `SELECT id, url, type, status, progress, error_message, created_at, started_at, completed_at,
+            attempt_count, max_attempts, next_attempt_at, last_error_class
+     FROM download_jobs
+     WHERE status IN ('pending', 'downloading')
+     ORDER BY status DESC, id ASC`
+  );
+  const history = await dbAll(
+    `SELECT id, url, type, status, progress, error_message, created_at, started_at, completed_at,
+            attempt_count, max_attempts, next_attempt_at, last_error_class
+     FROM download_jobs ${suffix}
+     ${suffix ? 'AND' : 'WHERE'} status IN ('completed', 'failed', 'cancelled')
+     ORDER BY completed_at DESC, id DESC LIMIT 100`,
+    params
+  );
+  res.json({ active, history, state: getQueueState() });
+}));
 
-  query += ' ORDER BY upload_date DESC, downloaded_at DESC LIMIT ? OFFSET ?';
-  params.push(parseInt(limit), parseInt(offset));
+app.get('/api/queue/:id/logs', asyncRoute(async (req, res) => {
+  const id = parseId(req.params.id);
+  const job = await dbGet('SELECT log_output, error_message, status FROM download_jobs WHERE id = ?', [id]);
+  if (!job) throw new ApiError(404, 'NOT_FOUND', 'Job not found');
+  const rows = await dbAll(
+    'SELECT created_at, level, message FROM download_job_logs WHERE job_id = ? ORDER BY id DESC LIMIT 250',
+    [id]
+  );
+  res.json({
+    logs: rows.reverse().map((row) => `[${row.created_at}] ${row.message}`).join('\n') || job.log_output || '',
+    error: job.error_message,
+    status: job.status
+  });
+}));
 
-  try {
-    const posts = await dbAll(query, params);
-    
-    // Also get total count for pagination
-    let countQuery = 'SELECT COUNT(*) as total FROM posts WHERE 1=1';
-    const countParams = [];
-    
-    if (channel_id) {
-      countQuery += ' AND channel_id = ?';
-      countParams.push(channel_id);
-    }
-    if (type) {
-      countQuery += ' AND type = ?';
-      countParams.push(type);
-    }
-    if (search) {
-      countQuery += ' AND (title LIKE ? OR description LIKE ?)';
-      countParams.push(`%${search}%`, `%${search}%`);
-    }
-    
-    const countResult = await dbGet(countQuery, countParams);
-    
-    res.json({
-      posts,
-      total: countResult ? countResult.total : 0,
-      page: parseInt(page),
-      limit: parseInt(limit)
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+app.post('/api/queue/:id/cancel', asyncRoute(async (req, res) => {
+  await cancelJob(parseId(req.params.id));
+  res.json({ message: 'Job cancelled' });
+}));
 
-// ZIP Archive API
-app.get('/api/posts/zip', async (req, res) => {
-  const { channel_id } = req.query;
-  try {
-    let posts;
-    let zipName = 'tiktok_archive_all.zip';
+app.post('/api/queue/:id/retry', asyncRoute(async (req, res) => {
+  await retryJob(parseId(req.params.id));
+  res.json({ message: 'Job requeued' });
+}));
 
-    if (channel_id) {
-      const channel = await dbGet('SELECT * FROM channels WHERE id = ?', [channel_id]);
-      const name = channel ? channel.username : channel_id.replace(/^@/, '');
-      posts = await dbAll('SELECT * FROM posts WHERE channel_id = ?', [channel_id]);
-      zipName = `tiktok_archive_${name}.zip`;
-    } else {
-      posts = await dbAll('SELECT * FROM posts');
-    }
+app.delete('/api/queue/history/completed', asyncRoute(async (req, res) => {
+  const result = await clearCompletedJobs();
+  res.json({ message: 'Completed queue entries cleared', count: result.changes });
+}));
 
-    if (!posts || posts.length === 0) {
-      return res.status(404).json({ error: 'No posts found to archive' });
-    }
+app.delete('/api/queue/:id', asyncRoute(async (req, res) => {
+  await deleteJob(parseId(req.params.id));
+  res.json({ message: 'Job deleted' });
+}));
 
-    // Set download headers
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', `attachment; filename="${zipName}"`);
+app.post('/api/queue/pause', asyncRoute(async (req, res) => {
+  pauseQueue();
+  res.json({ message: 'Queue paused' });
+}));
 
-    const archive = new ZipArchive({ zlib: { level: 9 } });
+app.post('/api/queue/resume', asyncRoute(async (req, res) => {
+  resumeQueue();
+  res.json({ message: 'Queue resumed' });
+}));
 
-    archive.on('warning', (err) => {
-      if (err.code === 'ENOENT') {
-        console.warn('[ZIP Warning]', err);
-      } else {
-        throw err;
-      }
-    });
-
-    archive.on('error', (err) => {
-      console.error('[ZIP Error]', err);
-      if (!res.headersSent) {
-        res.status(500).json({ error: err.message });
-      }
-    });
-
-    archive.pipe(res);
-
-    for (const post of posts) {
-      if (!post.file_path) continue;
-      const fullPath = path.join(DOWNLOADS_DIR, post.file_path);
-      if (!fs.existsSync(fullPath)) {
-        console.warn(`[ZIP] Path not found: ${fullPath}, skipping...`);
-        continue;
-      }
-
-      const stats = fs.statSync(fullPath);
-      const cleanChannelId = post.channel_id.replace(/^@/, '');
-      
-      if (stats.isDirectory()) {
-        archive.directory(fullPath, `${cleanChannelId}/${path.basename(post.file_path)}`);
-      } else {
-        archive.file(fullPath, { name: `${cleanChannelId}/${path.basename(post.file_path)}` });
-      }
-    }
-
-    await archive.finalize();
-  } catch (err) {
-    console.error('[ZIP Endpoint Error]', err);
-    if (!res.headersSent) {
-      res.status(500).json({ error: err.message });
-    }
-  }
-});
-
-// Post Media File Download API
-app.get('/api/posts/:id/download', async (req, res) => {
-  const { id } = req.params;
-  try {
-    const post = await dbGet('SELECT * FROM posts WHERE id = ?', [id]);
-    if (!post) return res.status(404).json({ error: 'Post not found' });
-    if (!post.file_path) return res.status(400).json({ error: 'No media file associated with this post' });
-
-    const fullPath = path.join(DOWNLOADS_DIR, post.file_path);
-    if (!fs.existsSync(fullPath)) {
-      return res.status(404).json({ error: 'File not found on server' });
-    }
-
-    const stats = fs.statSync(fullPath);
-    if (stats.isDirectory()) {
-      const folderName = path.basename(post.file_path);
-      res.setHeader('Content-Type', 'application/zip');
-      res.setHeader('Content-Disposition', `attachment; filename="${folderName}.zip"`);
-      
-      const archive = new ZipArchive({ zlib: { level: 9 } });
-      archive.pipe(res);
-      archive.directory(fullPath, false);
-      await archive.finalize();
-    } else {
-      const filename = path.basename(post.file_path);
-      res.download(fullPath, filename);
-    }
-  } catch (err) {
-    console.error('[Download Endpoint Error]', err);
-    if (!res.headersSent) {
-      res.status(500).json({ error: err.message });
-    }
-  }
-});
-
-// Post Detail & Slide Files Scraper API
-app.get('/api/posts/:id', async (req, res) => {
-  const { id } = req.params;
-  try {
-    const post = await dbGet('SELECT * FROM posts WHERE id = ?', [id]);
-    if (!post) return res.status(404).json({ error: 'Post not found' });
-
-    let images = [];
-    if (post.type === 'slideshow') {
-      const slideshowDir = path.join(DOWNLOADS_DIR, post.file_path);
-      if (fs.existsSync(slideshowDir)) {
-        images = fs.readdirSync(slideshowDir)
-          .filter(f => /\.(jpg|jpeg|png|webp)$/i.test(f))
-          .sort((a, b) => {
-            const numA = parseInt(a.match(/\d+/)?.[0] || 0);
-            const numB = parseInt(b.match(/\d+/)?.[0] || 0);
-            return numA - numB;
-          });
-      }
-    }
-
-    res.json({
-      post,
-      images
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-
-// On-Demand URL Download API
-app.post('/api/download-url', async (req, res) => {
-  const { url } = req.body;
-  if (!url) return res.status(400).json({ error: 'URL is required' });
-
-  try {
-    let type = 'post';
-    // Deduce if URL is a profile or a post
-    // TikTok profile URLs have /@username but do not contain /video/ or /photo/
-    const isProfile = /tiktok\.com\/@[a-zA-Z0-9_.-]+\/?$/.test(url.split('?')[0]) || 
-                      (!url.includes('/video/') && !url.includes('/photo/') && url.startsWith('@'));
-    
-    if (isProfile) {
-      type = 'channel';
-    }
-
-    let targetUrl = url.trim();
-    if (targetUrl.startsWith('@')) {
-      targetUrl = `https://www.tiktok.com/${targetUrl}`;
-    }
-
-    await enqueue(targetUrl, type);
-    res.json({ message: 'URL added to download queue', type });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Download Queue API
-app.get('/api/queue', async (req, res) => {
-  try {
-    // Show active (downloading/pending) jobs, and recently completed/failed jobs (last 20)
-    const activeJobs = await dbAll(
-      `SELECT id, url, type, status, progress, error_message, created_at, started_at, completed_at 
-       FROM download_jobs 
-       WHERE status IN ('pending', 'downloading')
-       ORDER BY status DESC, id ASC`
-    );
-    
-    const historicalJobs = await dbAll(
-      `SELECT id, url, type, status, progress, error_message, created_at, started_at, completed_at 
-       FROM download_jobs 
-       WHERE status IN ('completed', 'failed')
-       ORDER BY completed_at DESC LIMIT 20`
-    );
-
-    res.json({
-      active: activeJobs,
-      history: historicalJobs
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Job Logs API
-app.get('/api/queue/:id/logs', async (req, res) => {
-  const { id } = req.params;
-  try {
-    const job = await dbGet('SELECT log_output, error_message, status FROM download_jobs WHERE id = ?', [id]);
-    if (!job) return res.status(404).json({ error: 'Job not found' });
-    res.json({
-      logs: job.log_output,
-      error: job.error_message,
-      status: job.status
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Cookies API
 app.get('/api/cookies', (req, res) => {
   try {
-    let cookies = '';
-    if (fs.existsSync(COOKIES_FILE)) {
-      cookies = fs.readFileSync(COOKIES_FILE, 'utf8');
-    }
-    res.json({ cookies });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.json({ cookies: fs.existsSync(COOKIES_FILE) ? fs.readFileSync(COOKIES_FILE, 'utf8') : '' });
+  } catch (error) {
+    sendError(res, error);
   }
 });
 
 app.post('/api/cookies', (req, res) => {
-  const { cookies } = req.body;
-  if (cookies === undefined) return res.status(400).json({ error: 'Cookies content is required' });
-
   try {
-    fs.writeFileSync(COOKIES_FILE, cookies, 'utf8');
+    if (req.body.cookies === undefined) throw new ApiError(400, 'INVALID_BODY', 'Cookies content is required');
+    fs.writeFileSync(COOKIES_FILE, req.body.cookies, 'utf8');
     res.json({ message: 'Cookies saved successfully' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  } catch (error) {
+    sendError(res, error);
   }
 });
 
-// -------------------------------------------------------------
-// FRONTEND STATIC BUNDLE SERVING (Production)
-// -------------------------------------------------------------
 if (fs.existsSync(FRONTEND_DIST_DIR)) {
-  console.log(`[Server] Serving frontend production assets from: ${FRONTEND_DIST_DIR}`);
+  logger.info('serving frontend production assets', { path: FRONTEND_DIST_DIR });
   app.use(express.static(FRONTEND_DIST_DIR));
   app.get('*', (req, res) => {
     res.sendFile(path.join(FRONTEND_DIST_DIR, 'index.html'));
   });
 } else {
-  console.log('[Server] Frontend dist directory not found. Server running in API-only mode.');
+  logger.info('frontend dist missing; api-only mode');
 }
 
-// -------------------------------------------------------------
-// APP STARTUP & INITS
-// -------------------------------------------------------------
 const startApp = async () => {
-  // 1. Init Database tables
   await initDb();
+  await channelRegistry.syncFromFile();
+  await recoverInterruptedJobs();
 
-  // 2. Perform initial channels.txt -> DB sync
-  await syncChannelsTxtToDb();
-
-  // 3. Start Express Web server
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`\n======================================================`);
-    console.log(`🚀 TikTok Archiver server running on: http://0.0.0.0:${PORT}`);
-    console.log(`📂 Downloads location: ${DOWNLOADS_DIR}`);
-    console.log(`📂 Persistent data: ${DATA_DIR}`);
-    console.log(`======================================================\n`);
+    logger.info('server started', {
+      port: PORT,
+      downloads_dir: DOWNLOADS_DIR,
+      data_dir: DATA_DIR
+    });
   });
 
-  // 4. Run immediate background check on startup
-  runBackgroundMonitor();
-
-  // 5. Run active queue process trigger (restarts if pending jobs exist)
+  monitor.runOnce().catch((error) => logger.error('initial monitor failed', { error }));
   processQueue();
-
-  // 6. Schedule Background Monitor to run every 6 hours
-  const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
-  setInterval(runBackgroundMonitor, SIX_HOURS_MS);
+  monitor.start();
 };
 
-startApp().catch(err => {
-  console.error('Fatal error during application startup:', err);
+startApp().catch((error) => {
+  logger.error('fatal startup error', { error });
   process.exit(1);
 });

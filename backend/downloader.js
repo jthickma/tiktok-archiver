@@ -3,6 +3,8 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { dbRun, dbGet } from './database.js';
+import { extractUsername as extractNormalizedUsername } from './identity.js';
+import { logger } from './logger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -10,59 +12,23 @@ const DOWNLOADS_DIR = process.env.DOWNLOADS_DIR || path.join(__dirname, '../down
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '../data');
 const COOKIES_PATH = path.join(DATA_DIR, 'cookies.txt');
 
-// Helper to parse username from URL or metadata
-export const extractUsername = (url, metadata = {}) => {
-  let handle = '';
+export const extractUsername = extractNormalizedUsername;
 
-  // 1. Try to extract from metadata.webpage_url first (since it is the fully resolved canonical URL)
-  if (metadata && metadata.webpage_url) {
-    const match = metadata.webpage_url.match(/@([a-zA-Z0-9_.-]+)/);
-    if (match) {
-      handle = match[1];
-    }
+const registerProcess = (proc, options = {}) => {
+  if (typeof options.onProcess === 'function') {
+    options.onProcess(proc);
   }
-
-  // 2. Try to extract from the input url
-  if (!handle && url) {
-    const match = url.match(/@([a-zA-Z0-9_.-]+)/);
-    if (match) {
-      handle = match[1];
-    }
-  }
-
-  // 3. Try to extract from metadata.original_url
-  if (!handle && metadata && metadata.original_url) {
-    const match = metadata.original_url.match(/@([a-zA-Z0-9_.-]+)/);
-    if (match) {
-      handle = match[1];
-    }
-  }
-
-  // 4. Fallback to uploader if it exists and is not purely numeric (which represents user ID)
-  if (!handle && metadata && metadata.uploader) {
-    const possibleUploader = metadata.uploader;
-    if (possibleUploader && !/^\d+$/.test(possibleUploader)) {
-      handle = possibleUploader;
-    }
-  }
-
-  if (!handle) {
-    handle = 'unknown';
-  }
-
-  // Strip starting '@' if present, then prepend to make it consistent '@username'
-  handle = handle.replace(/^@/, '');
-  return `@${handle}`;
 };
 
 // Fetch post metadata from yt-dlp without downloading
-export const getMetadata = (url) => {
+export const getMetadata = (url, options = {}) => {
   return new Promise((resolve, reject) => {
     const args = ['--dump-json', '--skip-download', '--no-warnings', url];
     if (fs.existsSync(COOKIES_PATH) && fs.statSync(COOKIES_PATH).size > 0) {
       args.push('--cookies', COOKIES_PATH);
     }
     const proc = spawn('yt-dlp', args);
+    registerProcess(proc, options);
     let stdout = '';
     let stderr = '';
 
@@ -84,7 +50,7 @@ export const getMetadata = (url) => {
 };
 
 // Fetch all video entries in a profile (flat-playlist scan)
-export const scanProfile = (profileUrl) => {
+export const scanProfile = (profileUrl, options = {}) => {
   return new Promise((resolve, reject) => {
     // --flat-playlist outputs basic info for each entry without scraping detailed pages or downloading
     const args = ['--flat-playlist', '--dump-json', '--no-warnings', profileUrl];
@@ -93,6 +59,7 @@ export const scanProfile = (profileUrl) => {
     }
 
     const proc = spawn('yt-dlp', args);
+    registerProcess(proc, options);
     let stdout = '';
     let stderr = '';
 
@@ -116,12 +83,12 @@ export const scanProfile = (profileUrl) => {
 };
 
 // Main download handler for a specific post URL
-export const downloadPost = async (url, onProgress = () => {}) => {
-  console.log(`[Downloader] Starting processing for: ${url}`);
+export const downloadPost = async (url, onProgress = () => {}, options = {}) => {
+  logger.info('downloader started', { url });
   onProgress(5, 'Fetching post metadata...');
 
   // 1. Get detailed metadata
-  const metadata = await getMetadata(url);
+  const metadata = await getMetadata(url, options);
   const postId = metadata.id;
   const username = extractUsername(url, metadata);
   const title = metadata.title || '';
@@ -138,7 +105,7 @@ export const downloadPost = async (url, onProgress = () => {}) => {
   // Check if we already have this post in the database
   const duplicate = await dbGet('SELECT * FROM posts WHERE id = ?', [postId]);
   if (duplicate) {
-    console.log(`[Downloader] Skipping duplicate post: ${postId}`);
+    logger.info('downloader skipped duplicate post', { post_id: postId });
     onProgress(100, 'Duplicate skipped.');
     return duplicate;
   }
@@ -150,7 +117,7 @@ export const downloadPost = async (url, onProgress = () => {}) => {
                       (metadata.vcodec === 'none' && (!metadata.formats || metadata.formats.length <= 1));
 
   const type = isSlideshow ? 'slideshow' : 'video';
-  console.log(`[Downloader] Identified post ${postId} as type: ${type}`);
+  logger.info('downloader identified post type', { post_id: postId, type });
 
   // Create channel folder in downloads
   const channelDir = path.join(DOWNLOADS_DIR, username);
@@ -185,15 +152,16 @@ export const downloadPost = async (url, onProgress = () => {}) => {
 
     await new Promise((resolve, reject) => {
       const proc = spawn('gallery-dl', galleryArgs);
+      registerProcess(proc, options);
       let stderr = '';
 
       proc.stdout.on('data', (data) => {
         // Log line-by-line debug output
-        console.log(`[gallery-dl stdout] ${data.toString().trim()}`);
+        logger.info('gallery-dl stdout', { post_id: postId, output: data.toString().trim() });
       });
       proc.stderr.on('data', (data) => {
         stderr += data.toString();
-        console.error(`[gallery-dl stderr] ${data.toString().trim()}`);
+        logger.warn('gallery-dl stderr', { post_id: postId, output: data.toString().trim() });
       });
 
       proc.on('close', (code) => {
@@ -247,11 +215,12 @@ export const downloadPost = async (url, onProgress = () => {}) => {
 
     await new Promise((resolve, reject) => {
       const proc = spawn('yt-dlp', ytArgs);
+      registerProcess(proc, options);
       let stderr = '';
 
       proc.stdout.on('data', (data) => {
         const text = data.toString();
-        console.log(`[yt-dlp stdout] ${text.trim()}`);
+        logger.info('yt-dlp stdout', { post_id: postId, output: text.trim() });
         
         // Parse download percentage from yt-dlp output
         const match = text.match(/(\d+(?:\.\d+)?)%/);
@@ -265,7 +234,7 @@ export const downloadPost = async (url, onProgress = () => {}) => {
 
       proc.stderr.on('data', (data) => {
         stderr += data.toString();
-        console.error(`[yt-dlp stderr] ${data.toString().trim()}`);
+        logger.warn('yt-dlp stderr', { post_id: postId, output: data.toString().trim() });
       });
 
       proc.on('close', (code) => {
@@ -346,7 +315,7 @@ export const downloadPost = async (url, onProgress = () => {}) => {
     ]
   );
 
-  console.log(`[Downloader] Download completed successfully for: ${postId}`);
+  logger.info('downloader completed', { post_id: postId, channel_id: username });
   onProgress(100, 'Success');
 
   return postData;

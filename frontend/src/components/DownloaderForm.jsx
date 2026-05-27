@@ -23,7 +23,7 @@ export default function DownloaderForm({ onNavigateToQueue }) {
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || 'Failed to submit download');
+        throw new Error(data.error?.message || data.error || 'Failed to submit download');
       }
 
       setMessage(`URL successfully queued for download as a ${data.type}!`);

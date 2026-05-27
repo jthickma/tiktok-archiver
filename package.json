@@ -6,6 +6,9 @@
     "install:all": "npm install --prefix backend && npm install --prefix frontend",
     "dev:backend": "npm start --prefix backend",
     "dev:frontend": "npm run dev --prefix frontend",
-    "build:frontend": "npm run build --prefix frontend"
+    "build:frontend": "npm run build --prefix frontend",
+    "lint": "npm run lint --prefix backend && npm run lint --prefix frontend",
+    "test": "npm run test --prefix backend && npm run test --prefix frontend",
+    "format": "npx prettier --write ."
   }
 }
