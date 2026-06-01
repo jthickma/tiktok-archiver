@@ -82,6 +82,7 @@ const walkFiles = (dir, fs, path) => {
   const entries = fs.readdirSync(dir, { withFileTypes: true });
   return entries.flatMap((entry) => {
     const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory() && entry.name === '.thumbnails') return [];
     if (entry.isDirectory()) return walkFiles(fullPath, fs, path);
     return [fullPath];
   });
