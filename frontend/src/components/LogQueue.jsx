@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 
+const terminalStatuses = ['failed', 'completed', 'cancelled'];
+
 const formatDate = (isoString) => {
   if (!isoString) return '';
   return new Date(isoString).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'medium' });
@@ -13,6 +15,80 @@ const durationLabel = (job) => {
   if (seconds < 60) return `${seconds}s`;
   return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 };
+
+const readableUrl = (value) => {
+  try {
+    const url = new URL(value);
+    const host = url.hostname.replace(/^www\./, '');
+    const parts = url.pathname.split('/').filter(Boolean);
+    if (host === 'tiktok.com') {
+      const handle = parts.find((part) => part.startsWith('@'));
+      const videoIndex = parts.indexOf('video');
+      if (handle && videoIndex >= 0 && parts[videoIndex + 1]) return `${handle} / ${parts[videoIndex + 1]}`;
+      if (handle) return handle;
+    }
+    return `${host}${url.pathname === '/' ? '' : url.pathname}`.replace(/\/$/, '');
+  } catch {
+    return value;
+  }
+};
+
+const jobStatusTone = (status) => {
+  if (status === 'downloading') return 'info';
+  if (status === 'completed') return 'ok';
+  if (status === 'failed' || status === 'cancelled') return 'danger';
+  return 'muted';
+};
+
+const countByStatus = (jobs) => jobs.reduce((counts, job) => {
+  counts[job.status] = (counts[job.status] || 0) + 1;
+  return counts;
+}, {});
+
+function JobRow({ job, selected, onSelect, onAction }) {
+  const canCancel = job.status === 'downloading' || job.status === 'pending';
+  const canRetry = job.status === 'failed' || job.status === 'cancelled';
+  const canDelete = job.status !== 'downloading';
+  const progress = job.progress || 0;
+
+  return (
+    <article className={`job-item ${selected ? 'active-selection' : ''}`}>
+      <button type="button" className="job-main" onClick={() => onSelect(job)}>
+        <span className="job-title-row">
+          <strong className="job-url" title={job.url}>{readableUrl(job.url)}</strong>
+          <span className={`job-status-badge ${job.status}`}>{job.status}</span>
+        </span>
+        <span className="job-subline">
+          <span className={`job-type-badge ${job.type}`}>{job.type === 'post' ? 'download' : 'profile scan'}</span>
+          <span>{progress}%</span>
+          <span>{durationLabel(job)}</span>
+          <span>try {job.attempt_count || 0}/{job.max_attempts || 3}</span>
+        </span>
+        <span className="progress-bar-wrapper" aria-hidden="true">
+          <span className="progress-bar-fill" style={{ width: `${progress}%` }} />
+        </span>
+        {job.next_attempt_at && <span className="retry-note">Retry {formatDate(job.next_attempt_at)}</span>}
+      </button>
+      <div className="job-actions">
+        {canCancel && (
+          <button type="button" className="icon-btn danger" title="Cancel job" onClick={() => onAction(`/api/queue/${job.id}/cancel`)}>
+            Cancel
+          </button>
+        )}
+        {canRetry && (
+          <button type="button" className="icon-btn" title="Retry job" onClick={() => onAction(`/api/queue/${job.id}/retry`)}>
+            Retry
+          </button>
+        )}
+        {canDelete && (
+          <button type="button" className="icon-btn" title="Delete entry" onClick={() => onAction(`/api/queue/${job.id}`, 'DELETE')}>
+            Delete
+          </button>
+        )}
+      </div>
+    </article>
+  );
+}
 
 export default function LogQueue({ onQueueChanged }) {
   const [activeJobs, setActiveJobs] = useState([]);
@@ -72,13 +148,24 @@ export default function LogQueue({ onQueueChanged }) {
   }, [jobLogs]);
 
   const jobs = [...activeJobs, ...historyJobs];
+  const counts = countByStatus(jobs);
+  const activeCount = activeJobs.length;
 
   return (
     <div className="queue-console">
+      <div className="queue-summary" aria-label="Queue summary">
+        {['downloading', 'pending', 'failed', 'completed'].map((status) => (
+          <span key={status} className={`queue-summary-chip ${jobStatusTone(status)}`}>
+            <strong>{counts[status] || 0}</strong>
+            {status}
+          </span>
+        ))}
+      </div>
+
       <div className="queue-toolbar">
         <div className="segmented-control">
-          <button type="button" className={!statusFilter ? 'active' : ''} onClick={() => setStatusFilter('')}>All</button>
-          {['failed', 'completed', 'cancelled'].map((status) => (
+          <button type="button" className={!statusFilter ? 'active' : ''} onClick={() => setStatusFilter('')}>History</button>
+          {terminalStatuses.map((status) => (
             <button key={status} type="button" className={statusFilter === status ? 'active' : ''} onClick={() => setStatusFilter(status)}>{status}</button>
           ))}
         </div>
@@ -96,40 +183,46 @@ export default function LogQueue({ onQueueChanged }) {
       </div>
 
       <div className={`queue-layout ${selectedJob ? 'with-console' : ''}`}>
-        <div className="queue-list">
-          {jobs.length === 0 ? (
-            <div className="empty-state">No queue entries match this filter.</div>
-          ) : jobs.map((job) => (
-            <article key={job.id} className={`job-item ${selectedJob?.id === job.id ? 'active-selection' : ''}`}>
-              <button type="button" className="job-main" onClick={() => setSelectedJob(job)}>
-                <span className="job-header">
-                  <strong className="job-url" title={job.url}>{job.url}</strong>
-                  <span className={`job-type-badge ${job.type}`}>{job.type}</span>
-                </span>
-                <span className="progress-bar-wrapper">
-                  <span className="progress-bar-fill" style={{ width: `${job.progress || 0}%` }} />
-                </span>
-                <span className="job-meta">
-                  <span className={`job-status-badge ${job.status}`}>{job.status}</span>
-                  <span>{job.progress || 0}%</span>
-                  <span>{durationLabel(job)}</span>
-                  <span>attempt {job.attempt_count || 0}/{job.max_attempts || 3}</span>
-                </span>
-                {job.next_attempt_at && <span className="retry-note">Retry at {formatDate(job.next_attempt_at)}</span>}
-              </button>
-              <div className="job-actions">
-                {job.status === 'downloading' || job.status === 'pending' ? (
-                  <button type="button" className="icon-btn danger" title="Cancel job" onClick={() => runAction(`/api/queue/${job.id}/cancel`)}>Cancel</button>
-                ) : null}
-                {job.status === 'failed' || job.status === 'cancelled' ? (
-                  <button type="button" className="icon-btn" title="Retry job" onClick={() => runAction(`/api/queue/${job.id}/retry`)}>Retry</button>
-                ) : null}
-                {job.status !== 'downloading' ? (
-                  <button type="button" className="icon-btn" title="Delete entry" onClick={() => runAction(`/api/queue/${job.id}`, 'DELETE')}>Delete</button>
-                ) : null}
-              </div>
-            </article>
-          ))}
+        <div className="queue-stack">
+          <section className="queue-section">
+            <div className="queue-section-header">
+              <h2>Now</h2>
+              <span>{activeCount} active</span>
+            </div>
+            <div className="queue-list">
+              {activeJobs.length === 0 ? (
+                <div className="empty-state compact">Nothing is running or waiting.</div>
+              ) : activeJobs.map((job) => (
+                <JobRow
+                  key={job.id}
+                  job={job}
+                  selected={selectedJob?.id === job.id}
+                  onSelect={setSelectedJob}
+                  onAction={runAction}
+                />
+              ))}
+            </div>
+          </section>
+
+          <section className="queue-section">
+            <div className="queue-section-header">
+              <h2>Recent</h2>
+              <span>{historyJobs.length} shown</span>
+            </div>
+            <div className="queue-list">
+              {historyJobs.length === 0 ? (
+                <div className="empty-state compact">No finished jobs match this filter.</div>
+              ) : historyJobs.map((job) => (
+                <JobRow
+                  key={job.id}
+                  job={job}
+                  selected={selectedJob?.id === job.id}
+                  onSelect={setSelectedJob}
+                  onAction={runAction}
+                />
+              ))}
+            </div>
+          </section>
         </div>
 
         {selectedJob && (

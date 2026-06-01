@@ -120,31 +120,36 @@ app.post('/api/download-url', asyncRoute(async (req, res) => {
 app.get('/api/queue', asyncRoute(async (req, res) => {
   const status = String(req.query.status || '');
   const type = String(req.query.type || '');
-  const where = [];
-  const params = [];
+  const historyWhere = [];
+  const historyParams = [];
+  const activeWhere = ["status IN ('pending', 'downloading')"];
+  const activeParams = [];
   if (status) {
-    where.push('status = ?');
-    params.push(status);
+    historyWhere.push('status = ?');
+    historyParams.push(status);
   }
   if (type) {
-    where.push('type = ?');
-    params.push(type);
+    historyWhere.push('type = ?');
+    historyParams.push(type);
+    activeWhere.push('type = ?');
+    activeParams.push(type);
   }
-  const suffix = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const historySuffix = historyWhere.length ? `WHERE ${historyWhere.join(' AND ')}` : '';
   const active = await dbAll(
     `SELECT id, url, type, status, progress, error_message, created_at, started_at, completed_at,
             attempt_count, max_attempts, next_attempt_at, last_error_class
      FROM download_jobs
-     WHERE status IN ('pending', 'downloading')
-     ORDER BY status DESC, id ASC`
+     WHERE ${activeWhere.join(' AND ')}
+     ORDER BY CASE status WHEN 'downloading' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END, id ASC`,
+    activeParams
   );
   const history = await dbAll(
     `SELECT id, url, type, status, progress, error_message, created_at, started_at, completed_at,
             attempt_count, max_attempts, next_attempt_at, last_error_class
-     FROM download_jobs ${suffix}
-     ${suffix ? 'AND' : 'WHERE'} status IN ('completed', 'failed', 'cancelled')
+     FROM download_jobs ${historySuffix}
+     ${historySuffix ? 'AND' : 'WHERE'} status IN ('completed', 'failed', 'cancelled')
      ORDER BY completed_at DESC, id DESC LIMIT 100`,
-    params
+    historyParams
   );
   res.json({ active, history, state: getQueueState() });
 }));
