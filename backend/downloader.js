@@ -272,7 +272,6 @@ const downloadWithGalleryDl = async (url, onProgress, options, context = {}) => 
   const galleryArgs = [
     '--directory', itemDir,
     '--filename', context.filenameFormat || '/O',
-    '--no-warnings',
     '--no-input'
   ];
 
