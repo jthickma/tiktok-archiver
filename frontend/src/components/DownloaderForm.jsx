@@ -26,7 +26,7 @@ export default function DownloaderForm({ onNavigateToQueue }) {
         throw new Error(data.error?.message || data.error || 'Failed to submit download');
       }
 
-      setMessage(`URL successfully queued for download as a ${data.type}!`);
+      setMessage(`URL successfully queued for download as a ${data.type} job.`);
       setUrl('');
 
       // Redirect user to Queue/Active Tasks after a short delay so they see the progress
@@ -67,18 +67,18 @@ export default function DownloaderForm({ onNavigateToQueue }) {
           </div>
           <h2 className="page-title" style={{ fontSize: '1.75rem', marginBottom: '0.5rem' }}>On-Demand Downloader</h2>
           <p style={{ color: 'var(--text-secondary)' }}>
-            Paste any TikTok URL (a video, a photo slideshow, or a profile) to instantly queue it.
+            Paste a TikTok, VSCO, video, image, or gallery URL to queue it for archiving.
           </p>
         </div>
 
         <form onSubmit={handleDownload}>
           <div className="form-group" style={{ marginBottom: '2rem' }}>
-            <label className="form-label">TikTok Link</label>
+            <label className="form-label">Media Link</label>
             <input
               type="text"
               className="text-input"
               style={{ padding: '1.1rem 1.5rem', fontSize: '1.05rem' }}
-              placeholder="e.g. https://www.tiktok.com/@user/video/1234567890 or @username"
+              placeholder="e.g. https://vsco.co/user/gallery, https://www.tiktok.com/@user/video/123, or any media URL"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               disabled={loading}
@@ -134,10 +134,10 @@ export default function DownloaderForm({ onNavigateToQueue }) {
       <div style={{ marginTop: '2rem', padding: '0 1rem' }}>
         <h4 style={{ color: 'var(--text-primary)', marginBottom: '0.5rem', fontWeight: 600 }}>Archiving Tips</h4>
         <ul style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', lineHeight: '1.6', paddingLeft: '1.2rem' }}>
-          <li>Profile URLs (e.g. <code>https://www.tiktok.com/@username</code>) will check for new posts.</li>
-          <li>Video URLs will be downloaded immediately into the uploader's subfolder.</li>
-          <li>Slideshow URLs will download all images into a folder named after the post ID.</li>
-          <li>Duplicate videos or slideshows are automatically detected and skipped.</li>
+          <li>TikTok profile URLs (e.g. <code>https://www.tiktok.com/@username</code>) will check for new posts.</li>
+          <li>Video URLs are handled with yt-dlp when supported.</li>
+          <li>Gallery-style URLs, including VSCO galleries, are handled with gallery-dl.</li>
+          <li>Downloaded media appears in the Archive for viewing and per-file download.</li>
         </ul>
       </div>
     </div>

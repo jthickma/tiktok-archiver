@@ -62,17 +62,68 @@ export const searchPosts = async (filters) => {
 
 export const getPost = async (id) => dbGet('SELECT * FROM posts WHERE id = ?', [id]);
 
-export const getPostSlideshowImages = async (post, downloadsDir, fs, path) => {
-  if (!post || post.type !== 'slideshow' || !post.file_path) return [];
-  const slideshowDir = path.resolve(downloadsDir, post.file_path);
-  if (!slideshowDir.startsWith(path.resolve(downloadsDir)) || !fs.existsSync(slideshowDir)) {
+const MEDIA_EXTENSIONS = /\.(jpg|jpeg|png|webp|gif|avif|mp4|m4v|mov|webm|mkv|mp3|m4a|wav|flac|ogg|opus|image)$/i;
+const IMAGE_EXTENSIONS = /\.(jpg|jpeg|png|webp|gif|avif|image)$/i;
+const VIDEO_EXTENSIONS = /\.(mp4|m4v|mov|webm|mkv)$/i;
+const AUDIO_EXTENSIONS = /\.(mp3|m4a|wav|flac|ogg|opus)$/i;
+
+const toWebPath = (relativePath) => relativePath.replaceAll('\\', '/');
+
+const safeResolve = (downloadsDir, relativePath, path) => {
+  const root = path.resolve(downloadsDir);
+  const resolved = path.resolve(root, relativePath || '');
+  if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) {
+    return null;
+  }
+  return resolved;
+};
+
+const walkFiles = (dir, fs, path) => {
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  return entries.flatMap((entry) => {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) return walkFiles(fullPath, fs, path);
+    return [fullPath];
+  });
+};
+
+const mediaKind = (filePath) => {
+  if (IMAGE_EXTENSIONS.test(filePath)) return 'image';
+  if (VIDEO_EXTENSIONS.test(filePath)) return 'video';
+  if (AUDIO_EXTENSIONS.test(filePath)) return 'audio';
+  return 'file';
+};
+
+export const getPostMediaFiles = async (post, downloadsDir, fs, path) => {
+  if (!post || !post.file_path) return [];
+  const fullPath = safeResolve(downloadsDir, post.file_path, path);
+  if (!fullPath || !fs.existsSync(fullPath)) {
     return [];
   }
-  return fs.readdirSync(slideshowDir)
-    .filter((file) => /\.(jpg|jpeg|png|webp|image)$/i.test(file))
+
+  const root = path.resolve(downloadsDir);
+  const files = fs.statSync(fullPath).isDirectory() ? walkFiles(fullPath, fs, path) : [fullPath];
+
+  return files
+    .filter((file) => MEDIA_EXTENSIONS.test(file))
     .sort((a, b) => {
-      const numA = Number.parseInt(a.match(/\d+/)?.[0] || '0', 10);
-      const numB = Number.parseInt(b.match(/\d+/)?.[0] || '0', 10);
-      return numA - numB;
+      const relA = path.relative(fullPath, a);
+      const relB = path.relative(fullPath, b);
+      return relA.localeCompare(relB, undefined, { numeric: true });
+    })
+    .map((file, index) => {
+      const relativePath = toWebPath(path.relative(root, file));
+      return {
+        index,
+        name: path.basename(file),
+        path: relativePath,
+        kind: mediaKind(file),
+        size: fs.statSync(file).size
+      };
     });
+};
+
+export const getPostSlideshowImages = async (post, downloadsDir, fs, path) => {
+  const media = await getPostMediaFiles(post, downloadsDir, fs, path);
+  return media.filter((item) => item.kind === 'image').map((item) => item.name);
 };

@@ -19,8 +19,8 @@ import {
 import { createChannelRegistry } from './channels.js';
 import { detectUrlType } from './identity.js';
 import { createMonitor } from './monitor.js';
-import { getPost, getPostSlideshowImages, searchPosts } from './posts.js';
-import { sendPostMedia } from './archives.js';
+import { getPost, getPostMediaFiles, searchPosts } from './posts.js';
+import { sendPostMedia, sendPostMediaFile } from './archives.js';
 import { getSystemStatus } from './status.js';
 import { ApiError, parseId, parsePostsQuery, requireBodyString, sendError } from './validation.js';
 import { logger } from './logger.js';
@@ -91,12 +91,22 @@ app.get('/api/posts/:id/download', asyncRoute(async (req, res) => {
   await sendPostMedia({ res, downloadsDir: DOWNLOADS_DIR, post: await getPost(req.params.id) });
 }));
 
+app.get('/api/posts/:id/files/:index/download', asyncRoute(async (req, res) => {
+  const index = Number.parseInt(req.params.index, 10);
+  if (!Number.isInteger(index) || index < 0) {
+    throw new ApiError(400, 'INVALID_INDEX', 'File index must be zero or greater');
+  }
+  await sendPostMediaFile({ res, downloadsDir: DOWNLOADS_DIR, post: await getPost(req.params.id), index });
+}));
+
 app.get('/api/posts/:id', asyncRoute(async (req, res) => {
   const post = await getPost(req.params.id);
   if (!post) throw new ApiError(404, 'NOT_FOUND', 'Post not found');
+  const media = await getPostMediaFiles(post, DOWNLOADS_DIR, fs, path);
   res.json({
     post,
-    images: await getPostSlideshowImages(post, DOWNLOADS_DIR, fs, path)
+    media,
+    images: media.filter((item) => item.kind === 'image').map((item) => item.name)
   });
 }));
 

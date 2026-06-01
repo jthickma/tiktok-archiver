@@ -43,10 +43,10 @@ export const parsePostsQuery = (query) => {
     throw new ApiError(400, 'INVALID_QUERY', 'limit must be between 1 and 100');
   }
 
-  const allowedTypes = new Set(['', 'video', 'slideshow']);
+  const allowedTypes = new Set(['', 'video', 'slideshow', 'image', 'gallery', 'audio', 'media']);
   const type = String(query.type || '').trim();
   if (!allowedTypes.has(type)) {
-    throw new ApiError(400, 'INVALID_QUERY', 'type must be video or slideshow');
+    throw new ApiError(400, 'INVALID_QUERY', 'type is not supported');
   }
 
   const allowedSorts = new Set(['upload_date', 'downloaded_at', 'profile', 'type', 'title']);

@@ -1,6 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
-const fallbackThumb = (type) => `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 320 420'%3E%3Crect width='320' height='420' fill='%2313171f'/%3E%3Ccircle cx='160' cy='178' r='46' fill='%2328313d'/%3E%3Ctext x='160' y='258' text-anchor='middle' fill='%2398a2b3' font-family='Arial' font-size='22'%3E${type === 'slideshow' ? 'SLIDES' : 'VIDEO'}%3C/text%3E%3C/svg%3E`;
+const fallbackThumb = (type) => {
+  const label = type === 'slideshow' ? 'SLIDES' : type === 'gallery' ? 'GALLERY' : type === 'image' ? 'IMAGE' : type === 'audio' ? 'AUDIO' : 'VIDEO';
+  return `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 320 420'%3E%3Crect width='320' height='420' fill='%2313171f'/%3E%3Ccircle cx='160' cy='178' r='46' fill='%2328313d'/%3E%3Ctext x='160' y='258' text-anchor='middle' fill='%2398a2b3' font-family='Arial' font-size='22'%3E${label}%3C/text%3E%3C/svg%3E`;
+};
+
+const groupedMediaTypes = new Set(['slideshow', 'gallery']);
+const isGroupedMedia = (type) => groupedMediaTypes.has(type);
+const displaySource = (channelId) => channelId?.startsWith('@') ? channelId : channelId || 'unknown source';
+const avatarText = (channelId) => displaySource(channelId).replace(/^@/, '').slice(0, 2).toUpperCase();
 
 const getAvatarColor = (username) => {
   if (!username) return 'linear-gradient(135deg, #27d3c3, #6aa7ff)';
@@ -38,12 +46,15 @@ export default function MediaBrowser() {
   const [missingThumbnail, setMissingThumbnail] = useState(false);
   const [density, setDensity] = useState('compact');
   const [activePost, setActivePost] = useState(null);
-  const [slides, setSlides] = useState([]);
+  const [mediaFiles, setMediaFiles] = useState([]);
   const [slideIndex, setSlideIndex] = useState(0);
   const [error, setError] = useState('');
   const [pendingNavigation, setPendingNavigation] = useState(null);
 
   const totalPages = Math.max(1, Math.ceil(total / limit));
+  const activeMedia = activePost ? mediaFiles[slideIndex] : null;
+  const activeMediaPath = activeMedia?.path || activePost?.file_path;
+  const activeMediaKind = activeMedia?.kind || activePost?.type;
 
   const queryString = useMemo(() => {
     const params = new URLSearchParams({
@@ -125,17 +136,17 @@ export default function MediaBrowser() {
       } else if (e.key === 'ArrowRight') {
         handleNextPost();
       } else if (e.key === 'ArrowUp') {
-        if (activePost.type === 'slideshow' && slides.length > 1) {
+        if (isGroupedMedia(activePost.type) && mediaFiles.length > 1) {
           e.preventDefault();
-          setSlideIndex((prev) => (prev - 1 + slides.length) % slides.length);
+          setSlideIndex((prev) => (prev - 1 + mediaFiles.length) % mediaFiles.length);
         }
       } else if (e.key === 'ArrowDown') {
-        if (activePost.type === 'slideshow' && slides.length > 1) {
+        if (isGroupedMedia(activePost.type) && mediaFiles.length > 1) {
           e.preventDefault();
-          setSlideIndex((prev) => (prev + 1) % slides.length);
+          setSlideIndex((prev) => (prev + 1) % mediaFiles.length);
         }
       } else if (e.key === ' ') {
-        if (activePost.type === 'video') {
+        if (activeMediaKind === 'video') {
           e.preventDefault();
           const videoEl = document.querySelector('.media-modal-viewer video');
           if (videoEl) {
@@ -151,7 +162,7 @@ export default function MediaBrowser() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activePost, posts, page, totalPages, slides, pendingNavigation]);
+  }, [activePost, posts, page, totalPages, mediaFiles, pendingNavigation, activeMediaKind]);
 
   const fetchChannels = async () => {
     const res = await fetch('/api/channels');
@@ -177,12 +188,12 @@ export default function MediaBrowser() {
 
   const openPost = async (post) => {
     setActivePost(post);
-    setSlides([]);
+    setMediaFiles([]);
     setSlideIndex(0);
-    if (post.type === 'slideshow') {
+    if (isGroupedMedia(post.type)) {
       const res = await fetch(`/api/posts/${post.id}`);
       const data = await res.json();
-      setSlides(data.images || []);
+      setMediaFiles(data.media || []);
     }
   };
 
@@ -217,7 +228,7 @@ export default function MediaBrowser() {
 
       <div className="filter-dock">
         <div className="segmented-control">
-          {['', 'video', 'slideshow'].map((type) => (
+          {['', 'video', 'slideshow', 'image', 'gallery', 'audio'].map((type) => (
             <button key={type || 'all'} type="button" className={selectedType === type ? 'active' : ''} onClick={() => setSelectedType(type)}>
               {type || 'all'}
             </button>
@@ -273,12 +284,12 @@ export default function MediaBrowser() {
                   <span className={`media-badge ${post.type}`}>{post.type}</span>
                 </span>
                 <span className="media-info">
-                  <span className="media-author">@{post.channel_id.replace(/^@/, '')}</span>
-                  <strong>{post.title || post.description || 'Untitled TikTok post'}</strong>
+                  <span className="media-author">{displaySource(post.channel_id)}</span>
+                  <strong>{post.title || post.description || 'Untitled media'}</strong>
                   <span className="media-meta">{post.upload_date || 'No date'} / downloaded {post.downloaded_at?.slice(0, 10) || 'unknown'}</span>
                 </span>
               </button>
-              {post.type !== 'slideshow' && (
+              {!isGroupedMedia(post.type) && (
                 <a className="card-download-btn visible" href={`/api/posts/${post.id}/download`} title="Download media" download>DL</a>
               )}
             </article>
@@ -315,23 +326,31 @@ export default function MediaBrowser() {
 
                 {/* Media content */}
                 <div className="media-modal-viewer">
-                  {activePost.type === 'video' ? (
-                    <video 
-                      controls 
-                      autoPlay 
-                      playsInline 
-                      src={`/media/${activePost.file_path}`} 
+                  {activeMediaKind === 'video' ? (
+                    <video
+                      controls
+                      autoPlay
+                      playsInline
+                      src={`/media/${activeMediaPath}`}
                     />
+                  ) : activeMediaKind === 'image' ? (
+                    <div className="slideshow-view">
+                      <img src={`/media/${activeMediaPath}`} alt={activeMedia?.name || activePost.title || activePost.id} />
+                    </div>
+                  ) : activeMediaKind === 'audio' ? (
+                    <div className="slideshow-view">
+                      <audio controls autoPlay src={`/media/${activeMediaPath}`} />
+                    </div>
                   ) : (
                     <div className="slideshow-view">
-                      {slides.length > 0 ? (
-                        <img src={`/media/${activePost.file_path}/${slides[slideIndex]}`} alt={`Slide ${slideIndex + 1}`} />
+                      {mediaFiles.length > 0 ? (
+                        <img src={`/media/${mediaFiles[slideIndex].path}`} alt={mediaFiles[slideIndex].name || `Media ${slideIndex + 1}`} />
                       ) : (
-                        <div className="empty-state">No slide files found.</div>
+                        <div className="empty-state">No media files found.</div>
                       )}
-                      {slides.length > 1 && (
+                      {mediaFiles.length > 1 && (
                         <div className="slide-indicator-pills">
-                          {slides.map((_, idx) => (
+                          {mediaFiles.map((_, idx) => (
                             <button 
                               key={idx} 
                               type="button" 
@@ -360,22 +379,22 @@ export default function MediaBrowser() {
                 </button>
 
                 {/* Slideshow specific HUD controls */}
-                {activePost.type === 'slideshow' && slides.length > 1 && (
+                {isGroupedMedia(activePost.type) && mediaFiles.length > 1 && (
                   <div className="slideshow-hud-controls">
                     <button 
                       type="button" 
                       className="hud-slide-btn prev-slide" 
-                      onClick={() => setSlideIndex((slideIndex - 1 + slides.length) % slides.length)}
-                      title="Previous Slide (↑)"
+                      onClick={() => setSlideIndex((slideIndex - 1 + mediaFiles.length) % mediaFiles.length)}
+                      title="Previous media (↑)"
                     >
                       ▲
                     </button>
-                    <span className="hud-slide-counter">{slideIndex + 1} / {slides.length}</span>
+                    <span className="hud-slide-counter">{slideIndex + 1} / {mediaFiles.length}</span>
                     <button 
                       type="button" 
                       className="hud-slide-btn next-slide" 
-                      onClick={() => setSlideIndex((slideIndex + 1) % slides.length)}
-                      title="Next Slide (↓)"
+                      onClick={() => setSlideIndex((slideIndex + 1) % mediaFiles.length)}
+                      title="Next media (↓)"
                     >
                       ▼
                     </button>
@@ -388,10 +407,10 @@ export default function MediaBrowser() {
                 <div className="info-pane-header">
                   <div className="author-badge-container">
                     <div className="author-avatar-circle" style={{ background: getAvatarColor(activePost.channel_id) }}>
-                      {activePost.channel_id.replace(/^@/, '').slice(0, 2).toUpperCase()}
+                      {avatarText(activePost.channel_id)}
                     </div>
                     <div className="author-meta-text">
-                      <span className="author-username">@{activePost.channel_id.replace(/^@/, '')}</span>
+                      <span className="author-username">{displaySource(activePost.channel_id)}</span>
                       <span className="post-type-badge">{activePost.type}</span>
                     </div>
                   </div>
@@ -422,18 +441,27 @@ export default function MediaBrowser() {
                 </div>
 
                 <div className="info-pane-footer">
-                  {activePost.type !== 'slideshow' ? (
+                  {!isGroupedMedia(activePost.type) ? (
                     <a href={`/api/posts/${activePost.id}/download`} className="btn-action-primary download-action-btn" download>
                       <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round" className="btn-icon">
                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                         <polyline points="7 10 12 15 17 10" />
                         <line x1="12" y1="15" x2="12" y2="3" />
                       </svg>
-                      Download Video
+                      Download Media
+                    </a>
+                  ) : activeMedia ? (
+                    <a href={`/api/posts/${activePost.id}/files/${activeMedia.index}/download`} className="btn-action-primary download-action-btn" download>
+                      <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round" className="btn-icon">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="7 10 12 15 17 10" />
+                        <line x1="12" y1="15" x2="12" y2="3" />
+                      </svg>
+                      Download File
                     </a>
                   ) : (
                     <div className="slideshow-download-fallback-message">
-                      Slideshow images are stored in: <code className="slide-dir-code">{activePost.file_path}</code>
+                      Media files are stored in: <code className="slide-dir-code">{activePost.file_path}</code>
                     </div>
                   )}
                   
