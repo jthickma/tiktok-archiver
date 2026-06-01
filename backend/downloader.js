@@ -2,6 +2,8 @@ import { spawn } from 'child_process';
 import crypto from 'crypto';
 import path from 'path';
 import fs from 'fs';
+import { Readable } from 'stream';
+import { pipeline } from 'stream/promises';
 import { fileURLToPath } from 'url';
 import { dbRun, dbGet } from './database.js';
 import { extractUsername as extractNormalizedUsername, isTikTokUrl } from './identity.js';
@@ -18,6 +20,13 @@ const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.av
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.m4v', '.mov', '.webm', '.mkv']);
 const AUDIO_EXTENSIONS = new Set(['.mp3', '.m4a', '.wav', '.flac', '.ogg', '.opus']);
 const MEDIA_EXTENSIONS = new Set([...IMAGE_EXTENSIONS, ...VIDEO_EXTENSIONS, ...AUDIO_EXTENSIONS]);
+const VSCO_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:139.0) Gecko/20100101 Firefox/139.0';
+const VSCO_REQUEST_HEADERS = {
+  'User-Agent': VSCO_USER_AGENT,
+  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/png,image/svg+xml,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9',
+  Referer: 'https://vsco.co/'
+};
 
 export const extractUsername = extractNormalizedUsername;
 
@@ -52,6 +61,22 @@ const getHostname = (url) => {
 };
 
 const isVscoUrl = (url) => /(^|\.)vsco\.co$/i.test(getHostname(url));
+
+const getVscoUser = (url) => {
+  try {
+    return new URL(url).pathname.split('/').filter(Boolean)[0]?.toLowerCase() || '';
+  } catch {
+    return '';
+  }
+};
+
+const getExtensionFromUrl = (url, fallback = '.jpg') => {
+  try {
+    const ext = path.extname(new URL(url).pathname).toLowerCase();
+    if (MEDIA_EXTENSIONS.has(ext)) return ext;
+  } catch {}
+  return fallback;
+};
 
 const sourceIdFromUrl = (url, metadata = {}) => {
   if (isTikTokUrl(url) || isTikTokUrl(metadata.webpage_url || '')) {
@@ -185,6 +210,68 @@ const spawnTool = ({ command, args, label, postId, options, onStdout }) => new P
   });
 });
 
+const normalizeVscoMediaUrl = (media = {}) => {
+  if (media.isVideo && media.videoUrl) return String(media.videoUrl);
+  if (media.playbackUrl) return String(media.playbackUrl);
+  const rawUrl = media.responsiveUrl || media.posterUrl;
+  if (!rawUrl) return '';
+  if (rawUrl.startsWith('http')) return rawUrl;
+  const base = rawUrl.replace(/^\/\//, '');
+  const [cdn, ...rest] = base.split('/');
+  const mediaPath = rest.join('/');
+  if (cdn.startsWith('aws')) return `https://image-${cdn}.vsco.co/${mediaPath}`;
+  if (/^\d+$/.test(cdn)) return `https://image.vsco.co/${base}`;
+  return `https://${base}`;
+};
+
+const extractVscoPreloadedState = (html) => {
+  const marker = '__PRELOADED_STATE__ = ';
+  const start = html.indexOf(marker);
+  if (start === -1) throw new Error('VSCO page did not include preload state');
+  const afterMarker = html.slice(start + marker.length);
+  const end = afterMarker.indexOf('</script>');
+  const rawJson = (end === -1 ? afterMarker : afterMarker.slice(0, end))
+    .trim()
+    .replace(/;$/, '')
+    .replaceAll('":undefined', '":null');
+  return JSON.parse(rawJson);
+};
+
+const fetchVscoPage = async (url) => {
+  const res = await fetch(url, { headers: VSCO_REQUEST_HEADERS, redirect: 'follow' });
+  if (!res.ok) throw new Error(`VSCO page request failed (${res.status} ${res.statusText})`);
+  return res.text();
+};
+
+const downloadVscoDirect = async ({ url, itemDir, postId }) => {
+  const html = await fetchVscoPage(url);
+  const state = extractVscoPreloadedState(html);
+  const mediaEntry = Object.values(state?.medias?.byId || {})[0];
+  const media = mediaEntry?.media || mediaEntry;
+  if (!media) throw new Error('VSCO page did not include media metadata');
+
+  const mediaUrl = normalizeVscoMediaUrl(media);
+  if (!mediaUrl) throw new Error('VSCO media metadata did not include a downloadable URL');
+
+  const isVideo = Boolean(media.isVideo || media.videoUrl || media.playbackUrl);
+  const extension = getExtensionFromUrl(mediaUrl, isVideo ? '.mp4' : '.jpg');
+  const filePath = path.join(itemDir, `${safeSegment(media.id || postId)}${extension}`);
+  const res = await fetch(mediaUrl, {
+    headers: {
+      ...VSCO_REQUEST_HEADERS,
+      Accept: isVideo ? 'video/mp4,video/*;q=0.9,*/*;q=0.8' : 'image/avif,image/webp,image/png,image/jpeg,image/*;q=0.9,*/*;q=0.8',
+      Referer: url
+    },
+    redirect: 'follow'
+  });
+  if (!res.ok || !res.body) throw new Error(`VSCO media request failed (${res.status} ${res.statusText})`);
+  await pipeline(Readable.fromWeb(res.body), fs.createWriteStream(filePath));
+  return {
+    media,
+    filePath
+  };
+};
+
 // Fetch post metadata from yt-dlp without downloading
 export const getMetadata = (url, options = {}) => {
   return new Promise((resolve, reject) => {
@@ -278,7 +365,14 @@ const downloadWithGalleryDl = async (url, onProgress, options, context = {}) => 
   ];
 
   if (isVscoUrl(url)) {
-    galleryArgs.push('-o', 'extractor.vsco.tls12=false');
+    galleryArgs.push(
+      '-o', 'extractor.vsco.tls12=false',
+      '-o', 'extractor.vsco.browser=firefox',
+      '-o', `extractor.vsco.headers.User-Agent=${VSCO_USER_AGENT}`,
+      '-o', `extractor.vsco.headers.Accept=${VSCO_REQUEST_HEADERS.Accept}`,
+      '-o', `extractor.vsco.headers.Accept-Language=${VSCO_REQUEST_HEADERS['Accept-Language']}`,
+      '-o', `extractor.vsco.headers.Referer=https://vsco.co/${getVscoUser(url) || ''}`
+    );
   }
   if (hasCookies()) {
     galleryArgs.push('--cookies', COOKIES_PATH);
@@ -290,6 +384,17 @@ const downloadWithGalleryDl = async (url, onProgress, options, context = {}) => 
     await spawnTool({ command: 'gallery-dl', args: galleryArgs, label: 'gallery-dl', postId, options });
   } catch (error) {
     toolError = error;
+    if (isVscoUrl(url)) {
+      logger.warn('gallery-dl VSCO download failed; trying direct fallback', { post_id: postId, error });
+      onProgress(35, 'gallery-dl was blocked by VSCO. Trying direct media fallback...');
+      try {
+        const fallback = await downloadVscoDirect({ url, itemDir, postId });
+        context.metadata = { ...(context.metadata || {}), vsco_direct_media: fallback.media };
+        toolError = null;
+      } catch (fallbackError) {
+        toolError = fallbackError;
+      }
+    }
   }
 
   const files = collectMediaFiles(itemDir);
