@@ -57,6 +57,33 @@ export const canonicalizeTikTokUrl = (input) => {
   return url.toString();
 };
 
+export const canonicalizeHttpUrl = (input) => {
+  const value = String(input || '').trim();
+  if (!value) {
+    throw new Error('URL is required');
+  }
+
+  if (value.startsWith('@') || !/^https?:\/\//i.test(value)) {
+    return canonicalizeTikTokUrl(value);
+  }
+
+  const url = new URL(value);
+  if (!['http:', 'https:'].includes(url.protocol)) {
+    throw new Error('Only HTTP and HTTPS URLs are supported');
+  }
+  url.hash = '';
+  return url.toString();
+};
+
+export const isTikTokUrl = (input) => {
+  try {
+    const url = new URL(input);
+    return /(^|\.)tiktok\.com$/i.test(url.hostname);
+  } catch {
+    return false;
+  }
+};
+
 export const extractUsername = (url, metadata = {}) => {
   const candidates = [
     metadata.webpage_url,
@@ -80,9 +107,9 @@ export const extractUsername = (url, metadata = {}) => {
 };
 
 export const detectUrlType = (input) => {
-  const normalized = canonicalizeTikTokUrl(input);
+  const normalized = canonicalizeHttpUrl(input);
   const clean = normalized.split('?')[0].replace(/\/+$/, '');
-  const isProfile = /\/@[a-zA-Z0-9_.-]+$/i.test(clean);
+  const isProfile = isTikTokUrl(normalized) && /\/@[a-zA-Z0-9_.-]+$/i.test(clean);
   return {
     url: normalized,
     type: isProfile ? 'channel' : 'post'

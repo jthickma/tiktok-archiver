@@ -85,7 +85,7 @@ export default function LogQueue({ onQueueChanged }) {
         <select className="select-input" value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}>
           <option value="">All types</option>
           <option value="channel">Channels</option>
-          <option value="post">Posts</option>
+          <option value="post">Downloads</option>
         </select>
         <button type="button" className="btn btn-secondary" onClick={() => runAction(state.isPaused ? '/api/queue/resume' : '/api/queue/pause')}>
           {state.isPaused ? 'Resume queue' : 'Pause queue'}

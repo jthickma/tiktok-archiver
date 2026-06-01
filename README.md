@@ -183,7 +183,7 @@ Stopping monitoring keeps existing archived media and only sets the profile inac
 
 ### Download
 
-The Download tab queues a single TikTok URL. Profile URLs become `channel` jobs. Video and slideshow URLs become `post` jobs.
+The Download tab queues a single media URL. TikTok profile URLs become `channel` jobs. Direct videos and supported video pages are handled with `yt-dlp`; gallery-style URLs, including VSCO galleries, are handled with `gallery-dl` and appear in the archive for viewing and per-file downloads.
 
 ### Cookies
 
@@ -204,9 +204,10 @@ On startup, any interrupted `downloading` jobs are recovered back to `pending` w
 | `POST` | `/api/channels` | Add or reactivate a monitored profile |
 | `DELETE` | `/api/channels/:id` | Stop monitoring a profile |
 | `GET` | `/api/posts` | List archived posts with pagination and filters |
-| `GET` | `/api/posts/:id` | Get post details and slideshow image list |
+| `GET` | `/api/posts/:id` | Get post details and downloaded media file list |
 | `GET` | `/api/posts/:id/download` | Download one post media file |
-| `POST` | `/api/download-url` | Queue an arbitrary TikTok profile/post URL |
+| `GET` | `/api/posts/:id/files/:index/download` | Download one file from a gallery-style archive item |
+| `POST` | `/api/download-url` | Queue an arbitrary TikTok profile or media URL |
 | `GET` | `/api/queue` | List active and recent jobs |
 | `GET` | `/api/queue/:id/logs` | Read a job log |
 | `POST` | `/api/queue/:id/cancel` | Cancel a pending or active job |
