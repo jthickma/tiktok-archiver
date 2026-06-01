@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import { dbRun, dbGet } from './database.js';
 import { extractUsername as extractNormalizedUsername, isTikTokUrl } from './identity.js';
 import { logger } from './logger.js';
+import { createVideoThumbnail } from './thumbnails.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -92,6 +93,7 @@ const listFiles = (rootDir) => {
   const entries = fs.readdirSync(rootDir, { withFileTypes: true });
   return entries.flatMap((entry) => {
     const fullPath = path.join(rootDir, entry.name);
+    if (entry.isDirectory() && entry.name === '.thumbnails') return [];
     if (entry.isDirectory()) return listFiles(fullPath);
     return [fullPath];
   });
@@ -384,6 +386,14 @@ const downloadWithYtDlp = async (url, metadata, onProgress, options) => {
   setMediaDates(files, uploadDate);
   const type = inferTypeFromFiles([primaryFile]);
   const firstImage = files.find(isImageFile);
+  let generatedThumbnail = '';
+  if (!firstImage && isVideoFile(primaryFile)) {
+    try {
+      generatedThumbnail = await createVideoThumbnail(primaryFile, DOWNLOADS_DIR);
+    } catch (error) {
+      logger.warn('video thumbnail generation failed during download', { post_id: postId, error });
+    }
+  }
   const postData = buildPostData({
     id: postId,
     channelId,
@@ -393,7 +403,7 @@ const downloadWithYtDlp = async (url, metadata, onProgress, options) => {
     url,
     uploadDate,
     filePath: toWebPath(primaryFile),
-    thumbnailPath: firstImage && firstImage !== primaryFile ? toWebPath(firstImage) : (isImageFile(primaryFile) ? toWebPath(primaryFile) : ''),
+    thumbnailPath: firstImage && firstImage !== primaryFile ? toWebPath(firstImage) : (isImageFile(primaryFile) ? toWebPath(primaryFile) : generatedThumbnail),
     metadata: {
       ...metadata,
       downloader: 'yt-dlp',

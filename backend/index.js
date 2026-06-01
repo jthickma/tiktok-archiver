@@ -24,6 +24,7 @@ import { sendPostMedia, sendPostMediaFile } from './archives.js';
 import { getSystemStatus } from './status.js';
 import { ApiError, parseId, parsePostsQuery, requireBodyString, sendError } from './validation.js';
 import { logger } from './logger.js';
+import { ensurePostThumbnails } from './thumbnails.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -84,7 +85,11 @@ app.delete('/api/channels/:id', asyncRoute(async (req, res) => {
 }));
 
 app.get('/api/posts', asyncRoute(async (req, res) => {
-  res.json(await searchPosts(parsePostsQuery(req.query)));
+  const result = await searchPosts(parsePostsQuery(req.query));
+  res.json({
+    ...result,
+    posts: await ensurePostThumbnails(result.posts, DOWNLOADS_DIR)
+  });
 }));
 
 app.get('/api/posts/:id/download', asyncRoute(async (req, res) => {
