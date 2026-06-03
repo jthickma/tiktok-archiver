@@ -75,12 +75,20 @@ const updateJobStatus = async (jobId, progress, status, statusText = '', errorMs
 export const enqueue = async (url, type, options = {}) => {
   const time = new Date().toISOString();
   try {
-    await dbRun(
+    const result = await dbRun(
       `INSERT INTO download_jobs (url, type, status, created_at, max_attempts) VALUES (?, ?, ?, ?, ?)`,
       [url, type, 'pending', time, options.maxAttempts || 3]
     );
     // Trigger queue processing
     processQueue();
+    return {
+      id: result.lastID,
+      url,
+      type,
+      status: 'pending',
+      created: true,
+      requeued: false
+    };
   } catch (err) {
     if (err.message.includes('UNIQUE constraint failed')) {
       // If job is already present but in completed/failed/pending state, we might reset it if failed,
@@ -96,9 +104,30 @@ export const enqueue = async (url, type, options = {}) => {
           [time, existingJob.id]
         );
         processQueue();
+        return {
+          id: existingJob.id,
+          url,
+          type,
+          status: 'pending',
+          created: false,
+          requeued: true,
+          previousStatus: existingJob.status
+        };
       }
+      if (existingJob) {
+        return {
+          id: existingJob.id,
+          url,
+          type: existingJob.type,
+          status: existingJob.status,
+          created: false,
+          requeued: false
+        };
+      }
+      throw err;
     } else {
       logger.error('failed to enqueue job', { error: err, url, type });
+      throw err;
     }
   }
 };

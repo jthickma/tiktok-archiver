@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 
 export default function CookieEditor() {
   const [cookies, setCookies] = useState('');
@@ -7,13 +7,14 @@ export default function CookieEditor() {
   const [error, setError] = useState('');
 
   const fetchCookies = async () => {
+    setError('');
     try {
       const res = await fetch('/api/cookies');
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || 'Failed to fetch existing cookies');
       setCookies(data.cookies || '');
     } catch (err) {
-      console.error('Error fetching cookies:', err);
-      setError('Failed to fetch existing cookies.');
+      setError(err.message);
     }
   };
 
@@ -39,7 +40,7 @@ export default function CookieEditor() {
         throw new Error(data.error?.message || data.error || 'Failed to save cookies');
       }
 
-      setMessage('Cookies saved successfully! They will now be used for all future downloads.');
+      setMessage('Cookies saved. New downloads will use this cookies.txt file.');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -49,83 +50,49 @@ export default function CookieEditor() {
 
   return (
     <div className="narrow-page wide">
-      <div className="glass-panel feature-panel" style={{ padding: '2.5rem' }}>
-        <h2 className="logo-text" style={{ fontSize: '1.75rem', marginBottom: '0.5rem' }}>Authentication Cookies</h2>
-        <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem', fontSize: '0.95rem', lineHeight: '1.6' }}>
-          If TikTok blocks downloads, throws rate limit errors, or restricts private videos, paste your browser session cookies below. The cookies must be in **Netscape / Mozilla format**.
-        </p>
+      <section className="panel feature-panel">
+        <div className="section-heading">
+          <div>
+            <h2 className="page-title">Authentication cookies</h2>
+            <p>Paste TikTok cookies in Netscape format when downloads hit rate limits or restricted media.</p>
+          </div>
+        </div>
 
-        <form onSubmit={handleSave}>
-          <div className="form-group" style={{ marginBottom: '1.5rem' }}>
-            <label className="form-label">Netscape Cookie Format (cookies.txt)</label>
+        <form onSubmit={handleSave} className="stacked-form">
+          <div className="form-group">
+            <label className="form-label">cookies.txt</label>
             <textarea
               className="cookies-textarea"
-              placeholder="# Netscape HTTP Cookie File&#10;# http://curl.haxx.se/rfc/cookie_spec.html&#10;# This is a generated file! Do not edit.&#10;.tiktok.com	TRUE	/	TRUE	1716503990	sessionid	xyz123abc..."
+              placeholder="# Netscape HTTP Cookie File&#10;.tiktok.com	TRUE	/	TRUE	1716503990	sessionid	xyz123abc..."
               value={cookies}
               onChange={(e) => setCookies(e.target.value)}
               disabled={loading}
             />
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+          <div className="form-actions">
             <button type="submit" className="btn btn-primary" disabled={loading}>
-              {loading ? 'Saving...' : 'Save Cookies'}
+              {loading ? 'Saving...' : 'Save cookies'}
             </button>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={fetchCookies}
-              disabled={loading}
-            >
+            <button type="button" className="btn btn-secondary" onClick={fetchCookies} disabled={loading}>
               Reload
             </button>
           </div>
         </form>
 
-        {message && (
-          <div
-            style={{
-              marginTop: '1.5rem',
-              padding: '1rem',
-              borderRadius: 'var(--border-radius-md)',
-              background: 'rgba(16, 185, 129, 0.1)',
-              border: '1px solid rgba(16, 185, 129, 0.2)',
-              color: 'var(--status-success)',
-              fontWeight: 600
-            }}
-          >
-            {message}
-          </div>
-        )}
+        {message && <div className="alert success">{message}</div>}
+        {error && <div className="alert danger">{error}</div>}
+      </section>
 
-        {error && (
-          <div
-            style={{
-              marginTop: '1.5rem',
-              padding: '1rem',
-              borderRadius: 'var(--border-radius-md)',
-              background: 'rgba(239, 68, 68, 0.1)',
-              border: '1px solid rgba(239, 68, 68, 0.2)',
-              color: 'var(--status-danger)',
-              fontWeight: 600
-            }}
-          >
-            {error}
-          </div>
-        )}
-      </div>
-
-      <div className="glass-panel" style={{ marginTop: '2rem', padding: '2rem' }}>
-        <h3 style={{ color: 'var(--text-primary)', marginBottom: '0.75rem', fontWeight: 700 }}>How to Export Cookies</h3>
-        <ol style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: '1.7', paddingLeft: '1.2rem' }}>
-          <li>
-            Install a browser extension like <strong>"Get cookies.txt LOCALLY"</strong> or <strong>"Export cookies"</strong> (available on Chrome Web Store and Firefox Add-ons).
-          </li>
-          <li>Open TikTok in your browser and ensure you are logged in to your account.</li>
-          <li>Click the extension icon and select <strong>"Export cookies for tiktok.com"</strong> (choose the <code>Netscape</code> format option).</li>
-          <li>Copy the entire text from the exported file and paste it into the textarea above, then click <strong>"Save Cookies"</strong>.</li>
+      <section className="panel compact-panel">
+        <h3>Export checklist</h3>
+        <ol className="instruction-list">
+          <li>Use a browser extension that exports cookies locally in Netscape format.</li>
+          <li>Open TikTok while logged in before exporting cookies for tiktok.com.</li>
+          <li>Paste the full exported file here, including comment lines.</li>
+          <li>Save, then queue or retry the affected download.</li>
         </ol>
-      </div>
+      </section>
     </div>
   );
 }

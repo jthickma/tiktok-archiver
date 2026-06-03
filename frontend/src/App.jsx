@@ -37,14 +37,18 @@ const formatBytes = (bytes) => {
 export default function App() {
   const [activeTab, setActiveTab] = useState('browser');
   const [status, setStatus] = useState(null);
+  const [statusLoading, setStatusLoading] = useState(false);
 
   const fetchStatus = async () => {
     try {
+      setStatusLoading(true);
       const res = await fetch('/api/status');
       if (!res.ok) throw new Error('Status request failed');
       setStatus(await res.json());
     } catch (error) {
       setStatus({ offline: true, error: error.message });
+    } finally {
+      setStatusLoading(false);
     }
   };
 
@@ -55,9 +59,10 @@ export default function App() {
   }, []);
 
   const counts = status?.queue?.counts || {};
-  const activeTasks = (counts.pending || 0) + (counts.downloading || 0);
+  const activeTasks = status?.queue?.activeCount ?? ((counts.pending || 0) + (counts.downloading || 0));
   const toolsOk = status?.tools && Object.values(status.tools).every(Boolean);
   const storageOk = status?.storage?.dataDirWritable && status?.storage?.downloadsDirWritable;
+  const systemReady = !status?.offline && toolsOk && storageOk;
 
   const pageTitle = useMemo(() => tabs.find((tab) => tab.id === activeTab)?.label || 'Archive', [activeTab]);
 
@@ -103,12 +108,18 @@ export default function App() {
         <header className="topbar">
           <div>
             <h1>{pageTitle}</h1>
-            <p>{status?.offline ? status.error : `${activeTasks} active tasks / ${counts.failed || 0} failed jobs`}</p>
+            <p>{status?.offline ? status.error : `${activeTasks} active tasks / ${counts.failed || 0} failed jobs / ${status?.queue?.totalCount || 0} total jobs`}</p>
           </div>
-          <div className="status-strip" aria-label="System status">
-            <span className={`status-chip ${toolsOk ? 'ok' : 'warn'}`}>Tools {toolsOk ? 'ready' : 'check'}</span>
-            <span className={`status-chip ${storageOk ? 'ok' : 'warn'}`}>Storage {storageOk ? 'writable' : 'blocked'}</span>
-            <span className="status-chip">Free {formatBytes(status?.storage?.disk?.bytesFree)}</span>
+          <div className="topbar-actions">
+            <div className="status-strip" aria-label="System status">
+              <span className={`status-chip ${systemReady ? 'ok' : 'warn'}`}>{systemReady ? 'Ready' : 'Needs attention'}</span>
+              <span className={`status-chip ${toolsOk ? 'ok' : 'warn'}`}>Tools {toolsOk ? 'ready' : 'check'}</span>
+              <span className={`status-chip ${storageOk ? 'ok' : 'warn'}`}>Storage {storageOk ? 'writable' : 'blocked'}</span>
+              <span className="status-chip">Free {formatBytes(status?.storage?.disk?.bytesFree)}</span>
+            </div>
+            <button type="button" className="icon-btn refresh-btn" onClick={fetchStatus} disabled={statusLoading}>
+              {statusLoading ? 'Refreshing' : 'Refresh'}
+            </button>
           </div>
         </header>
 

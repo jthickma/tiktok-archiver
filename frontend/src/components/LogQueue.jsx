@@ -98,15 +98,19 @@ export default function LogQueue({ onQueueChanged }) {
   const [jobLogs, setJobLogs] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
+  const [summary, setSummary] = useState({ counts: {} });
+  const [actionError, setActionError] = useState('');
   const terminalRef = useRef(null);
 
   const fetchQueue = async () => {
     const params = new URLSearchParams({ status: statusFilter, type: typeFilter });
     const res = await fetch(`/api/queue?${params}`);
     const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || 'Failed to load queue');
     setActiveJobs(data.active || []);
     setHistoryJobs(data.history || []);
     setState(data.state || {});
+    setSummary(data.summary || { counts: {} });
     if (selectedJob) {
       const latest = [...(data.active || []), ...(data.history || [])].find((job) => job.id === selectedJob.id);
       if (latest) setSelectedJob(latest);
@@ -123,8 +127,13 @@ export default function LogQueue({ onQueueChanged }) {
     const res = await fetch(path, { method });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error?.message || 'Queue action failed');
+    setActionError('');
     await fetchQueue();
     onQueueChanged?.();
+  };
+
+  const handleAction = (path, method = 'POST') => {
+    runAction(path, method).catch((err) => setActionError(err.message));
   };
 
   useEffect(() => {
@@ -148,11 +157,13 @@ export default function LogQueue({ onQueueChanged }) {
   }, [jobLogs]);
 
   const jobs = [...activeJobs, ...historyJobs];
-  const counts = countByStatus(jobs);
+  const counts = { ...countByStatus(jobs), ...(summary.counts || {}) };
   const activeCount = activeJobs.length;
 
   return (
     <div className="queue-console">
+      {actionError && <div className="alert danger">{actionError}</div>}
+
       <div className="queue-summary" aria-label="Queue summary">
         {['downloading', 'pending', 'failed', 'completed'].map((status) => (
           <span key={status} className={`queue-summary-chip ${jobStatusTone(status)}`}>
@@ -174,10 +185,10 @@ export default function LogQueue({ onQueueChanged }) {
           <option value="channel">Channels</option>
           <option value="post">Downloads</option>
         </select>
-        <button type="button" className="btn btn-secondary" onClick={() => runAction(state.isPaused ? '/api/queue/resume' : '/api/queue/pause')}>
+        <button type="button" className="btn btn-secondary" onClick={() => handleAction(state.isPaused ? '/api/queue/resume' : '/api/queue/pause')}>
           {state.isPaused ? 'Resume queue' : 'Pause queue'}
         </button>
-        <button type="button" className="btn btn-secondary" onClick={() => runAction('/api/queue/history/completed', 'DELETE')}>
+        <button type="button" className="btn btn-secondary" onClick={() => handleAction('/api/queue/history/completed', 'DELETE')}>
           Clear completed
         </button>
       </div>
@@ -198,7 +209,7 @@ export default function LogQueue({ onQueueChanged }) {
                   job={job}
                   selected={selectedJob?.id === job.id}
                   onSelect={setSelectedJob}
-                  onAction={runAction}
+                  onAction={handleAction}
                 />
               ))}
             </div>
@@ -218,7 +229,7 @@ export default function LogQueue({ onQueueChanged }) {
                   job={job}
                   selected={selectedJob?.id === job.id}
                   onSelect={setSelectedJob}
-                  onAction={runAction}
+                  onAction={handleAction}
                 />
               ))}
             </div>

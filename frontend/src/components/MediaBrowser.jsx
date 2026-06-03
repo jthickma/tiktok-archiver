@@ -49,6 +49,7 @@ export default function MediaBrowser() {
   const [mediaFiles, setMediaFiles] = useState([]);
   const [slideIndex, setSlideIndex] = useState(0);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState(null);
 
   const totalPages = Math.max(1, Math.ceil(total / limit));
@@ -75,6 +76,7 @@ export default function MediaBrowser() {
   const fetchPosts = async () => {
     try {
       setError('');
+      setLoading(true);
       const res = await fetch(`/api/posts?${queryString}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error?.message || 'Failed to load archive');
@@ -83,6 +85,8 @@ export default function MediaBrowser() {
     } catch (err) {
       setError(err.message);
       setPendingNavigation(null);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -165,9 +169,14 @@ export default function MediaBrowser() {
   }, [activePost, posts, page, totalPages, mediaFiles, pendingNavigation, activeMediaKind]);
 
   const fetchChannels = async () => {
-    const res = await fetch('/api/channels');
-    const data = await res.json();
-    setChannels(Array.isArray(data) ? data : []);
+    try {
+      const res = await fetch('/api/channels');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || 'Failed to load profiles');
+      setChannels(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setError(err.message);
+    }
   };
 
   useEffect(() => {
@@ -184,6 +193,18 @@ export default function MediaBrowser() {
 
   const toggleChannel = (id) => {
     setSelectedChannels((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+  };
+
+  const clearFilters = () => {
+    setSearch('');
+    setSelectedChannels([]);
+    setSelectedType('');
+    setSort('upload_date');
+    setDirection('desc');
+    setDateFrom('');
+    setDateTo('');
+    setMissingThumbnail(false);
+    setPage(1);
   };
 
   const openPost = async (post) => {
@@ -216,7 +237,7 @@ export default function MediaBrowser() {
           <option value="title">Title</option>
         </select>
         <button type="button" className="icon-btn" onClick={() => setDirection(direction === 'desc' ? 'asc' : 'desc')} title="Toggle sort direction">
-          {direction === 'desc' ? 'DESC' : 'ASC'}
+          {direction === 'desc' ? 'Desc' : 'Asc'}
         </button>
         <select className="select-input" value={limit} onChange={(event) => setLimit(Number(event.target.value))}>
           <option value={24}>24</option>
@@ -247,6 +268,9 @@ export default function MediaBrowser() {
             </button>
           ))}
         </div>
+        <button type="button" className="btn btn-secondary" onClick={clearFilters}>
+          Clear filters
+        </button>
       </div>
 
       <div className="profile-filter" aria-label="Profile filters">
@@ -263,10 +287,12 @@ export default function MediaBrowser() {
       </div>
 
       <div className="bulk-bar">
-        <span>{total} total</span>
+        <span>{loading ? 'Loading archive...' : `${total} total / page ${page} of ${totalPages}`}</span>
       </div>
 
-      {posts.length === 0 ? (
+      {loading ? (
+        <div className="empty-state">Loading archived media...</div>
+      ) : posts.length === 0 ? (
         <div className="empty-state">No archived media matches this view.</div>
       ) : (
         <div className={`media-grid density-${density}`}>

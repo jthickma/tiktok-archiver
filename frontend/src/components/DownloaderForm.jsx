@@ -26,14 +26,14 @@ export default function DownloaderForm({ onNavigateToQueue }) {
         throw new Error(data.error?.message || data.error || 'Failed to submit download');
       }
 
-      setMessage(`URL successfully queued for download as a ${data.type} job.`);
+      const jobStatus = data.job?.requeued ? 'requeued' : data.job?.created ? 'queued' : 'already queued';
+      setMessage(`${data.type === 'channel' ? 'Profile scan' : 'Download'} ${jobStatus}. Job #${data.job?.id || 'pending'} is ready in the queue.`);
       setUrl('');
 
-      // Redirect user to Queue/Active Tasks after a short delay so they see the progress
       if (onNavigateToQueue) {
         setTimeout(() => {
           onNavigateToQueue();
-        }, 1200);
+        }, 900);
       }
     } catch (err) {
       setError(err.message);
@@ -44,41 +44,28 @@ export default function DownloaderForm({ onNavigateToQueue }) {
 
   return (
     <div className="narrow-page">
-      <div className="glass-panel feature-panel" style={{ padding: '3rem' }}>
-        <div style={{ textAlign: 'center', marginBottom: '2.5rem' }}>
-          <div
-            style={{
-              width: '64px',
-              height: '64px',
-              borderRadius: '20px',
-              background: 'rgba(37, 244, 238, 0.12)',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'var(--accent-purple)',
-              marginBottom: '1rem'
-            }}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <section className="panel feature-panel">
+        <div className="feature-heading">
+          <div className="feature-icon" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
               <polyline points="7 10 12 15 17 10" />
               <line x1="12" y1="15" x2="12" y2="3" />
             </svg>
           </div>
-          <h2 className="page-title" style={{ fontSize: '1.75rem', marginBottom: '0.5rem' }}>On-Demand Downloader</h2>
-          <p style={{ color: 'var(--text-secondary)' }}>
-            Paste a TikTok, VSCO, video, image, or gallery URL to queue it for archiving.
-          </p>
+          <div>
+            <h2 className="page-title">On-demand downloader</h2>
+            <p>Queue a TikTok profile, TikTok post, VSCO gallery, or direct media URL.</p>
+          </div>
         </div>
 
-        <form onSubmit={handleDownload}>
-          <div className="form-group" style={{ marginBottom: '2rem' }}>
-            <label className="form-label">Media Link</label>
+        <form onSubmit={handleDownload} className="stacked-form">
+          <div className="form-group">
+            <label className="form-label">Media link</label>
             <input
               type="text"
-              className="text-input"
-              style={{ padding: '1.1rem 1.5rem', fontSize: '1.05rem' }}
-              placeholder="e.g. https://vsco.co/user/gallery, https://www.tiktok.com/@user/video/123, or any media URL"
+              className="text-input input-lg"
+              placeholder="https://www.tiktok.com/@user/video/123"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               disabled={loading}
@@ -86,60 +73,24 @@ export default function DownloaderForm({ onNavigateToQueue }) {
             />
           </div>
 
-          <button
-            type="submit"
-            className="btn btn-primary"
-            style={{ width: '100%', padding: '1.1rem', fontSize: '1.05rem' }}
-            disabled={loading}
-          >
-            {loading ? 'Queueing download...' : 'Trigger Download'}
+          <button type="submit" className="btn btn-primary full-width" disabled={loading}>
+            {loading ? 'Queueing...' : 'Queue download'}
           </button>
         </form>
 
-        {message && (
-          <div
-            style={{
-              marginTop: '1.5rem',
-              padding: '1rem',
-              borderRadius: 'var(--border-radius-md)',
-              background: 'rgba(16, 185, 129, 0.1)',
-              border: '1px solid rgba(16, 185, 129, 0.2)',
-              color: 'var(--status-success)',
-              fontWeight: 600,
-              textAlign: 'center'
-            }}
-          >
-            {message}
-          </div>
-        )}
+        {message && <div className="alert success">{message}</div>}
+        {error && <div className="alert danger">{error}</div>}
+      </section>
 
-        {error && (
-          <div
-            style={{
-              marginTop: '1.5rem',
-              padding: '1rem',
-              borderRadius: 'var(--border-radius-md)',
-              background: 'rgba(239, 68, 68, 0.1)',
-              border: '1px solid rgba(239, 68, 68, 0.2)',
-              color: 'var(--status-danger)',
-              fontWeight: 600,
-              textAlign: 'center'
-            }}
-          >
-            {error}
-          </div>
-        )}
-      </div>
-
-      <div style={{ marginTop: '2rem', padding: '0 1rem' }}>
-        <h4 style={{ color: 'var(--text-primary)', marginBottom: '0.5rem', fontWeight: 600 }}>Archiving Tips</h4>
-        <ul style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', lineHeight: '1.6', paddingLeft: '1.2rem' }}>
-          <li>TikTok profile URLs (e.g. <code>https://www.tiktok.com/@username</code>) will check for new posts.</li>
-          <li>Video URLs are handled with yt-dlp when supported.</li>
-          <li>Gallery-style URLs, including VSCO galleries, are handled with gallery-dl.</li>
-          <li>Downloaded media appears in the Archive for viewing and per-file download.</li>
-        </ul>
-      </div>
+      <section className="panel compact-panel">
+        <h3>Accepted sources</h3>
+        <div className="tip-grid">
+          <span>TikTok profiles scan for new posts.</span>
+          <span>Post URLs download a single item.</span>
+          <span>VSCO and generic galleries use gallery-dl.</span>
+          <span>Archived media appears in the Archive view.</span>
+        </div>
+      </section>
     </div>
   );
 }

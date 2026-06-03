@@ -1,49 +1,45 @@
-# --- STAGE 1: Build React Frontend ---
-FROM node:20-slim AS frontend-builder
+# syntax=docker/dockerfile:1
+
+# --- STAGE 1: Build React frontend ---
+FROM node:20-alpine AS frontend-builder
 WORKDIR /app/frontend
 
-# Copy dependencies and install
-COPY frontend/package.json ./
-RUN npm install
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
 
-# Copy source and build
 COPY frontend/ ./
 RUN npm run build
 
-# --- STAGE 2: Build Node Backend & Install Media Tools ---
-FROM node:20-slim
+# --- STAGE 2: Install production backend dependencies ---
+FROM node:20-alpine AS backend-deps
+WORKDIR /app/backend
+
+RUN apk add --no-cache python3 make g++
+COPY backend/package.json backend/package-lock.json ./
+RUN npm ci --omit=dev
+
+# --- STAGE 3: Runtime ---
+FROM node:20-alpine
 WORKDIR /app
 
-# Install system dependencies: python3, pip, and ffmpeg
-RUN apt-get update && apt-get install -y \
-    python3 \
-    python3-pip \
-    ffmpeg \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache python3 ffmpeg curl \
+    && apk add --no-cache --virtual .pip-deps py3-pip \
+    && python3 -m venv /opt/media-tools \
+    && /opt/media-tools/bin/pip install --no-cache-dir --upgrade pip \
+    && /opt/media-tools/bin/pip install --no-cache-dir yt-dlp gallery-dl curl_cffi \
+    && apk del .pip-deps
 
-# Install/Update yt-dlp and gallery-dl from pip
-# --break-system-packages is required for Debian Bookworm PEP 668 compatibility
-RUN python3 -m pip install --break-system-packages -U yt-dlp gallery-dl
+ENV PATH="/opt/media-tools/bin:${PATH}" \
+    PORT=8080 \
+    DATA_DIR=/app/data \
+    DOWNLOADS_DIR=/app/downloads \
+    NODE_ENV=production
 
-# Copy backend dependencies and install
-COPY backend/package.json ./backend/
-RUN cd backend && npm install
-
-# Copy backend source
+COPY --from=backend-deps /app/backend/node_modules ./backend/node_modules
 COPY backend/ ./backend/
-
-# Copy built frontend dist from Stage 1
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
 
-# Setup default directories for mounts
 RUN mkdir -p /app/data /app/downloads
-
-# Environment variables
-ENV PORT=8080
-ENV DATA_DIR=/app/data
-ENV DOWNLOADS_DIR=/app/downloads
-ENV NODE_ENV=production
 
 EXPOSE 8080
 

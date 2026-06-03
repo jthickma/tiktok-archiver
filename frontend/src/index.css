@@ -186,6 +186,12 @@ a:focus-visible {
   margin-bottom: 16px;
 }
 
+.topbar-actions {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
 .topbar h1 {
   margin: 0;
   font-size: 26px;
@@ -224,6 +230,10 @@ a:focus-visible {
   color: var(--muted);
   font-size: 13px;
   white-space: nowrap;
+}
+
+.refresh-btn {
+  min-width: 96px;
 }
 
 .status-chip.ok {
@@ -278,6 +288,45 @@ a:focus-visible {
   background: var(--panel);
 }
 
+.feature-panel {
+  padding: 24px;
+}
+
+.compact-panel {
+  padding: 16px;
+}
+
+.section-heading,
+.feature-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.section-heading p,
+.feature-heading p,
+.compact-panel p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.feature-icon {
+  display: inline-flex;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(39, 211, 195, 0.25);
+  border-radius: var(--radius);
+  background: rgba(39, 211, 195, 0.12);
+  color: var(--accent);
+}
+
 .logo-text {
   color: var(--text);
   font-weight: 800;
@@ -319,6 +368,33 @@ a:focus-visible {
 
 .form-group {
   margin-bottom: 14px;
+}
+
+.stacked-form {
+  display: grid;
+  gap: 14px;
+}
+
+.grow-field {
+  flex: 1 1 260px;
+  margin-bottom: 0;
+}
+
+.input-lg {
+  min-height: 48px;
+  font-size: 15px;
+}
+
+.full-width {
+  width: 100%;
+}
+
+.form-actions,
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .form-label {
@@ -379,6 +455,33 @@ a:focus-visible {
 .alert.danger {
   border-color: rgba(243, 95, 95, 0.45);
   color: var(--danger);
+}
+
+.alert.success {
+  border-color: rgba(54, 194, 117, 0.45);
+  color: var(--ok);
+}
+
+.tip-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.compact-panel h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+
+.instruction-list {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.65;
 }
 
 .toolbar,
@@ -840,6 +943,10 @@ a:focus-visible {
   border-collapse: collapse;
 }
 
+.table-scroll {
+  overflow-x: auto;
+}
+
 .channel-table th,
 .channel-table td {
   padding: 10px;
@@ -870,6 +977,50 @@ a:focus-visible {
   background: var(--panel-2);
   color: var(--accent);
   font-weight: 800;
+}
+
+.channel-name,
+.strong-cell {
+  font-weight: 800;
+}
+
+.muted-link,
+.muted-cell {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.muted-link {
+  text-decoration: none;
+}
+
+.muted-link:hover {
+  color: var(--accent);
+}
+
+.state-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.state-badge.ok {
+  color: var(--ok);
+}
+
+.state-badge.muted {
+  color: var(--muted);
+}
+
+.danger-text {
+  color: var(--danger);
 }
 
 .inline-action-form {
@@ -1342,6 +1493,10 @@ a:focus-visible {
     display: grid;
   }
 
+  .topbar-actions {
+    justify-items: stretch;
+  }
+
   .metrics-row {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1440,6 +1595,14 @@ a:focus-visible {
   }
 
   .inline-action-form {
+    display: grid;
+  }
+
+  .tip-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .feature-heading {
     display: grid;
   }
 }

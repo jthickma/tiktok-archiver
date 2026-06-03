@@ -27,6 +27,45 @@ const VSCO_REQUEST_HEADERS = {
   'Accept-Language': 'en-US,en;q=0.9',
   Referer: 'https://vsco.co/'
 };
+const GALLERY_DL_DEFAULT_FILENAME = '{id}.{extension}';
+const VSCO_FETCH_SCRIPT = String.raw`
+import os
+import sys
+from curl_cffi import requests
+
+mode = sys.argv[1]
+url = sys.argv[2]
+referer = sys.argv[3]
+output_path = sys.argv[4] if len(sys.argv) > 4 else ""
+accept = os.environ.get("VSCO_FETCH_ACCEPT") or ("text/html,application/xhtml+xml" if mode == "page" else "image/avif,image/webp,image/png,image/jpeg,image/*;q=0.9,*/*;q=0.8")
+headers = {
+    "User-Agent": os.environ.get("VSCO_USER_AGENT", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:139.0) Gecko/20100101 Firefox/139.0"),
+    "Accept": accept,
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": referer,
+}
+response = requests.get(
+    url,
+    headers=headers,
+    impersonate=os.environ.get("VSCO_IMPERSONATE", "chrome124"),
+    timeout=float(os.environ.get("VSCO_FETCH_TIMEOUT", "30")),
+    allow_redirects=True,
+)
+if response.status_code >= 400:
+    sys.stderr.write(f"VSCO browser fetch failed: HTTP {response.status_code} {response.url}\n")
+    sys.exit(2)
+if mode == "page":
+    sys.stdout.write(response.text)
+elif mode == "download":
+    if not output_path:
+        sys.stderr.write("Output path is required for download mode\n")
+        sys.exit(3)
+    with open(output_path, "wb") as file:
+        file.write(response.content)
+else:
+    sys.stderr.write(f"Unsupported mode: {mode}\n")
+    sys.exit(4)
+`;
 
 export const extractUsername = extractNormalizedUsername;
 
@@ -70,6 +109,14 @@ const getVscoUser = (url) => {
   }
 };
 
+const getVscoMediaId = (url) => {
+  try {
+    return new URL(url).pathname.match(/\/media\/([0-9a-fA-F]+)/)?.[1] || '';
+  } catch {
+    return '';
+  }
+};
+
 const getExtensionFromUrl = (url, fallback = '.jpg') => {
   try {
     const ext = path.extname(new URL(url).pathname).toLowerCase();
@@ -81,6 +128,9 @@ const getExtensionFromUrl = (url, fallback = '.jpg') => {
 const sourceIdFromUrl = (url, metadata = {}) => {
   if (isTikTokUrl(url) || isTikTokUrl(metadata.webpage_url || '')) {
     return extractUsername(url, metadata);
+  }
+  if (isVscoUrl(url)) {
+    return getVscoUser(url) || getHostname(url);
   }
   return safeSegment(metadata.uploader || metadata.channel || metadata.extractor_key || getHostname(url), 'source');
 };
@@ -94,6 +144,10 @@ const sourceUrlFromId = (channelId, url) => {
 const createPostId = (url, metadata = {}) => {
   if ((isTikTokUrl(url) || isTikTokUrl(metadata.webpage_url || '')) && metadata.id) {
     return String(metadata.id);
+  }
+  if (isVscoUrl(url)) {
+    const mediaId = getVscoMediaId(url) || metadata.id;
+    if (mediaId) return `vsco_${safeSegment(mediaId)}`.slice(0, 160);
   }
   const extractor = safeSegment(metadata.extractor_key || getHostname(url), 'media');
   const id = safeSegment(metadata.id || hashValue(url), hashValue(url));
@@ -210,6 +264,46 @@ const spawnTool = ({ command, args, label, postId, options, onStdout }) => new P
   });
 });
 
+const spawnCapture = ({ command, args, label, options, env = {} }) => new Promise((resolve, reject) => {
+  const proc = spawn(command, args, { env: { ...process.env, ...env } });
+  registerProcess(proc, options);
+  let stdout = '';
+  let stderr = '';
+
+  proc.stdout.on('data', (data) => { stdout += data.toString(); });
+  proc.stderr.on('data', (data) => { stderr += data.toString(); });
+
+  proc.on('error', (error) => reject(error));
+  proc.on('close', (code) => {
+    if (code !== 0) {
+      reject(new Error(stderr.trim() || `${label} failed (code ${code})`));
+    } else {
+      resolve(stdout);
+    }
+  });
+});
+
+const runVscoBrowserFetch = async ({ mode, url, referer, outputPath = '', options, accept }) => {
+  const args = ['-c', VSCO_FETCH_SCRIPT, mode, url, referer, outputPath];
+  const env = {
+    VSCO_USER_AGENT,
+    ...(accept ? { VSCO_FETCH_ACCEPT: accept } : {})
+  };
+
+  try {
+    return await spawnCapture({ command: 'python3', args, label: 'VSCO browser fetch', options, env });
+  } catch (error) {
+    if (!/curl_cffi|No module named/i.test(error.message)) throw error;
+    return spawnCapture({
+      command: 'uv',
+      args: ['run', '--with', 'curl-cffi', 'python', ...args],
+      label: 'VSCO browser fetch via uv',
+      options,
+      env
+    });
+  }
+};
+
 const normalizeVscoMediaUrl = (media = {}) => {
   if (media.isVideo && media.videoUrl) return String(media.videoUrl);
   if (media.playbackUrl) return String(media.playbackUrl);
@@ -237,14 +331,53 @@ const extractVscoPreloadedState = (html) => {
   return JSON.parse(rawJson);
 };
 
-const fetchVscoPage = async (url) => {
+const fetchVscoPage = async (url, options = {}) => {
   const res = await fetch(url, { headers: VSCO_REQUEST_HEADERS, redirect: 'follow' });
-  if (!res.ok) throw new Error(`VSCO page request failed (${res.status} ${res.statusText})`);
-  return res.text();
+  const html = await res.text();
+  if (res.ok && html.includes('__PRELOADED_STATE__')) return html;
+
+  try {
+    return await runVscoBrowserFetch({
+      mode: 'page',
+      url,
+      referer: `https://vsco.co/${getVscoUser(url) || ''}`,
+      options,
+      accept: VSCO_REQUEST_HEADERS.Accept
+    });
+  } catch (error) {
+    const reason = res.ok ? 'missing preload state' : `${res.status} ${res.statusText}`;
+    throw new Error(`VSCO page request failed (${reason}); browser fallback failed: ${error.message}`);
+  }
 };
 
-const downloadVscoDirect = async ({ url, itemDir, postId }) => {
-  const html = await fetchVscoPage(url);
+const downloadVscoAsset = async ({ mediaUrl, filePath, referer, isVideo, options }) => {
+  const accept = isVideo ? 'video/mp4,video/*;q=0.9,*/*;q=0.8' : 'image/avif,image/webp,image/png,image/jpeg,image/*;q=0.9,*/*;q=0.8';
+  const res = await fetch(mediaUrl, {
+    headers: {
+      ...VSCO_REQUEST_HEADERS,
+      Accept: accept,
+      Referer: referer
+    },
+    redirect: 'follow'
+  });
+
+  if (res.ok && res.body) {
+    await pipeline(Readable.fromWeb(res.body), fs.createWriteStream(filePath));
+    return;
+  }
+
+  await runVscoBrowserFetch({
+    mode: 'download',
+    url: mediaUrl,
+    referer,
+    outputPath: filePath,
+    options,
+    accept
+  });
+};
+
+const downloadVscoDirect = async ({ url, itemDir, postId, options }) => {
+  const html = await fetchVscoPage(url, options);
   const state = extractVscoPreloadedState(html);
   const mediaEntry = Object.values(state?.medias?.byId || {})[0];
   const media = mediaEntry?.media || mediaEntry;
@@ -256,16 +389,7 @@ const downloadVscoDirect = async ({ url, itemDir, postId }) => {
   const isVideo = Boolean(media.isVideo || media.videoUrl || media.playbackUrl);
   const extension = getExtensionFromUrl(mediaUrl, isVideo ? '.mp4' : '.jpg');
   const filePath = path.join(itemDir, `${safeSegment(media.id || postId)}${extension}`);
-  const res = await fetch(mediaUrl, {
-    headers: {
-      ...VSCO_REQUEST_HEADERS,
-      Accept: isVideo ? 'video/mp4,video/*;q=0.9,*/*;q=0.8' : 'image/avif,image/webp,image/png,image/jpeg,image/*;q=0.9,*/*;q=0.8',
-      Referer: url
-    },
-    redirect: 'follow'
-  });
-  if (!res.ok || !res.body) throw new Error(`VSCO media request failed (${res.status} ${res.statusText})`);
-  await pipeline(Readable.fromWeb(res.body), fs.createWriteStream(filePath));
+  await downloadVscoAsset({ mediaUrl, filePath, referer: url, isVideo, options });
   return {
     media,
     filePath
@@ -356,17 +480,16 @@ const downloadWithGalleryDl = async (url, onProgress, options, context = {}) => 
   const itemDir = path.join(DOWNLOADS_DIR, sourceDir, safeSegment(postId));
 
   fs.mkdirSync(itemDir, { recursive: true });
-  onProgress(20, `Downloading media with gallery-dl${isVscoUrl(url) ? ' (VSCO TLS 1.2 disabled)' : ''}...`);
+  onProgress(20, `Downloading media with gallery-dl${isVscoUrl(url) ? ' using VSCO settings' : ''}...`);
 
   const galleryArgs = [
     '--directory', itemDir,
-    '--filename', context.filenameFormat || '/O',
+    '--filename', context.filenameFormat || GALLERY_DL_DEFAULT_FILENAME,
     '--no-input'
   ];
 
   if (isVscoUrl(url)) {
     galleryArgs.push(
-      '-o', 'extractor.vsco.tls12=false',
       '-o', 'extractor.vsco.browser=firefox',
       '-o', `extractor.vsco.headers.User-Agent=${VSCO_USER_AGENT}`,
       '-o', `extractor.vsco.headers.Accept=${VSCO_REQUEST_HEADERS.Accept}`,
@@ -388,7 +511,7 @@ const downloadWithGalleryDl = async (url, onProgress, options, context = {}) => 
       logger.warn('gallery-dl VSCO download failed; trying direct fallback', { post_id: postId, error });
       onProgress(35, 'gallery-dl was blocked by VSCO. Trying direct media fallback...');
       try {
-        const fallback = await downloadVscoDirect({ url, itemDir, postId });
+        const fallback = await downloadVscoDirect({ url, itemDir, postId, options });
         context.metadata = { ...(context.metadata || {}), vsco_direct_media: fallback.media };
         toolError = null;
       } catch (fallbackError) {
@@ -412,7 +535,10 @@ const downloadWithGalleryDl = async (url, onProgress, options, context = {}) => 
   const metadata = {
     ...(context.metadata || {}),
     downloader: 'gallery-dl',
-    gallery_dl_tls12: isVscoUrl(url) ? false : undefined,
+    gallery_dl_filename: context.filenameFormat || GALLERY_DL_DEFAULT_FILENAME,
+    gallery_dl_tls12: isVscoUrl(url) ? true : undefined,
+    vsco_user: isVscoUrl(url) ? getVscoUser(url) : undefined,
+    vsco_media_id: isVscoUrl(url) ? getVscoMediaId(url) : undefined,
     yt_dlp_error: context.ytDlpError,
     media_files: files.map(toWebPath)
   };

@@ -30,12 +30,26 @@ const diskFree = async (dir) => {
   }
 };
 
+const normalizeCounts = (rows) => {
+  const counts = {
+    pending: 0,
+    downloading: 0,
+    completed: 0,
+    failed: 0,
+    cancelled: 0
+  };
+
+  for (const row of rows) {
+    counts[row.status] = row.count;
+  }
+
+  return counts;
+};
+
 export const getSystemStatus = async ({ startedAt, dataDir, downloadsDir, queueState, monitorState }) => {
   const rows = await dbAll('SELECT status, COUNT(*) as count FROM download_jobs GROUP BY status');
-  const queueCounts = rows.reduce((acc, row) => {
-    acc[row.status] = row.count;
-    return acc;
-  }, {});
+  const queueCounts = normalizeCounts(rows);
+  const activeCount = queueCounts.pending + queueCounts.downloading;
 
   const [ytDlp, galleryDl, ffmpeg, disk] = await Promise.all([
     commandAvailable('yt-dlp'),
@@ -51,7 +65,10 @@ export const getSystemStatus = async ({ startedAt, dataDir, downloadsDir, queueS
     },
     queue: {
       ...queueState,
-      counts: queueCounts
+      counts: queueCounts,
+      activeCount,
+      totalCount: Object.values(queueCounts).reduce((total, count) => total + count, 0),
+      problemCount: queueCounts.failed
     },
     monitor: monitorState,
     tools: {
@@ -60,9 +77,12 @@ export const getSystemStatus = async ({ startedAt, dataDir, downloadsDir, queueS
       ffmpeg
     },
     storage: {
+      dataDir,
+      downloadsDir,
       dataDirWritable: checkWritable(dataDir),
       downloadsDirWritable: checkWritable(downloadsDir),
       disk
-    }
+    },
+    checkedAt: new Date().toISOString()
   };
 };

@@ -74,3 +74,19 @@ export const parsePostsQuery = (query) => {
     missingThumbnail: String(query.missing_thumbnail || '') === '1'
   };
 };
+
+export const parseQueueQuery = (query) => {
+  const status = String(query.status || '').trim();
+  const type = String(query.type || '').trim();
+  const allowedStatuses = new Set(['', 'pending', 'downloading', 'completed', 'failed', 'cancelled']);
+  const allowedTypes = new Set(['', 'channel', 'post']);
+
+  if (!allowedStatuses.has(status)) {
+    throw new ApiError(400, 'INVALID_QUERY', 'status is not supported');
+  }
+  if (!allowedTypes.has(type)) {
+    throw new ApiError(400, 'INVALID_QUERY', 'type is not supported');
+  }
+
+  return { status, type };
+};

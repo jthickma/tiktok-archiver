@@ -22,7 +22,7 @@ import { createMonitor } from './monitor.js';
 import { getPost, getPostMediaFiles, searchPosts } from './posts.js';
 import { sendPostMedia, sendPostMediaFile } from './archives.js';
 import { getSystemStatus } from './status.js';
-import { ApiError, parseId, parsePostsQuery, requireBodyString, sendError } from './validation.js';
+import { ApiError, parseId, parsePostsQuery, parseQueueQuery, requireBodyString, sendError } from './validation.js';
 import { logger } from './logger.js';
 import { ensurePostThumbnails } from './thumbnails.js';
 
@@ -58,6 +58,29 @@ const asyncRoute = (handler) => async (req, res) => {
   }
 };
 
+const emptyQueueCounts = () => ({
+  pending: 0,
+  downloading: 0,
+  completed: 0,
+  failed: 0,
+  cancelled: 0
+});
+
+const readQueueSummary = async () => {
+  const rows = await dbAll('SELECT status, COUNT(*) as count FROM download_jobs GROUP BY status');
+  const counts = emptyQueueCounts();
+  for (const row of rows) {
+    counts[row.status] = row.count;
+  }
+
+  return {
+    counts,
+    activeCount: counts.pending + counts.downloading,
+    totalCount: Object.values(counts).reduce((total, count) => total + count, 0),
+    problemCount: counts.failed
+  };
+};
+
 app.get('/api/status', asyncRoute(async (req, res) => {
   res.json(await getSystemStatus({
     startedAt,
@@ -75,8 +98,12 @@ app.get('/api/channels', asyncRoute(async (req, res) => {
 app.post('/api/channels', asyncRoute(async (req, res) => {
   const url = requireBodyString(req.body, 'url');
   const channel = await channelRegistry.monitorProfile(url);
-  await enqueue(channel.url, 'channel');
-  res.json({ message: 'Channel added and monitoring queued', channelId: channel.id });
+  const job = await enqueue(channel.url, 'channel');
+  res.status(job.created ? 201 : 200).json({
+    message: job.requeued ? 'Profile monitoring requeued' : job.created ? 'Profile monitoring queued' : 'Profile is already queued',
+    channelId: channel.id,
+    job
+  });
 }));
 
 app.delete('/api/channels/:id', asyncRoute(async (req, res) => {
@@ -118,18 +145,24 @@ app.get('/api/posts/:id', asyncRoute(async (req, res) => {
 app.post('/api/download-url', asyncRoute(async (req, res) => {
   const input = requireBodyString(req.body, 'url');
   const target = detectUrlType(input);
-  await enqueue(target.url, target.type);
-  res.json({ message: 'URL added to download queue', type: target.type });
+  const job = await enqueue(target.url, target.type);
+  res.status(job.created ? 201 : 200).json({
+    message: job.requeued ? 'URL requeued for download' : job.created ? 'URL added to download queue' : 'URL is already in the queue',
+    type: target.type,
+    job
+  });
 }));
 
 app.get('/api/queue', asyncRoute(async (req, res) => {
-  const status = String(req.query.status || '');
-  const type = String(req.query.type || '');
+  const { status, type } = parseQueueQuery(req.query);
   const historyWhere = [];
   const historyParams = [];
   const activeWhere = ["status IN ('pending', 'downloading')"];
   const activeParams = [];
-  if (status) {
+  if (status && ['pending', 'downloading'].includes(status)) {
+    activeWhere.splice(0, activeWhere.length, 'status = ?');
+    activeParams.push(status);
+  } else if (status) {
     historyWhere.push('status = ?');
     historyParams.push(status);
   }
@@ -156,7 +189,7 @@ app.get('/api/queue', asyncRoute(async (req, res) => {
      ORDER BY completed_at DESC, id DESC LIMIT 100`,
     historyParams
   );
-  res.json({ active, history, state: getQueueState() });
+  res.json({ active, history, state: getQueueState(), summary: await readQueueSummary() });
 }));
 
 app.get('/api/queue/:id/logs', asyncRoute(async (req, res) => {

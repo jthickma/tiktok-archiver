@@ -1,24 +1,39 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+
+const formatDate = (isoString) => {
+  if (!isoString) return 'Never checked';
+  const date = new Date(isoString);
+  return date.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
+};
 
 export default function ChannelManager({ onNavigateToQueue }) {
   const [channels, setChannels] = useState([]);
   const [newUrl, setNewUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
 
   const fetchChannels = async () => {
-    try {
-      const res = await fetch('/api/channels');
-      const data = await res.json();
-      setChannels(data || []);
-    } catch (err) {
-      console.error('Error fetching channels:', err);
-    }
+    const res = await fetch('/api/channels');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || 'Failed to load profiles');
+    setChannels(Array.isArray(data) ? data : []);
   };
 
   useEffect(() => {
-    fetchChannels();
+    fetchChannels().catch((err) => setError(err.message));
   }, []);
+
+  const monitorProfile = async (url) => {
+    const res = await fetch('/api/channels', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || data.error || 'Failed to add profile');
+    return data;
+  };
 
   const handleAddChannel = async (e) => {
     e.preventDefault();
@@ -26,25 +41,16 @@ export default function ChannelManager({ onNavigateToQueue }) {
 
     setLoading(true);
     setError('');
+    setMessage('');
 
     try {
-      const res = await fetch('/api/channels', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: newUrl.trim() })
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error?.message || data.error || 'Failed to add profile');
-      }
-
+      const data = await monitorProfile(newUrl.trim());
       setNewUrl('');
+      setMessage(`${data.channelId} queued as job #${data.job?.id || 'pending'}.`);
       await fetchChannels();
-      
-      // Navigate user to queue if callback is provided so they can watch the scan progress
+
       if (onNavigateToQueue) {
-        onNavigateToQueue();
+        setTimeout(onNavigateToQueue, 700);
       }
     } catch (err) {
       setError(err.message);
@@ -54,41 +60,54 @@ export default function ChannelManager({ onNavigateToQueue }) {
   };
 
   const handleRemoveChannel = async (channelId) => {
-    if (!confirm(`Are you sure you want to stop monitoring ${channelId}? Existing downloaded media will NOT be deleted.`)) {
+    if (!confirm(`Stop monitoring ${channelId}? Existing downloaded media will not be deleted.`)) {
       return;
     }
 
+    setError('');
+    setMessage('');
     try {
       const res = await fetch(`/api/channels/${encodeURIComponent(channelId)}`, {
         method: 'DELETE'
       });
-      if (res.ok) {
-        fetchChannels();
-      }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error?.message || 'Failed to stop monitoring profile');
+      setMessage(`${channelId} monitoring stopped.`);
+      await fetchChannels();
     } catch (err) {
-      console.error('Error removing channel:', err);
+      setError(err.message);
     }
   };
 
-  // Format date helper
-  const formatDate = (isoString) => {
-    if (!isoString) return 'Never checked';
-    const date = new Date(isoString);
-    return date.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
+  const handleRemonitor = async (url) => {
+    setError('');
+    setMessage('');
+    try {
+      const data = await monitorProfile(url);
+      setMessage(`${data.channelId} monitoring restored.`);
+      await fetchChannels();
+    } catch (err) {
+      setError(err.message);
+    }
   };
 
   return (
-    <div>
-      {/* Add Channel Form */}
-      <div className="glass-panel" style={{ marginBottom: '2.5rem' }}>
-        <h2 className="logo-text" style={{ fontSize: '1.5rem', marginBottom: '1.25rem' }}>Monitor New Profile</h2>
+    <div className="channel-console">
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <h2 className="logo-text">Monitor profile</h2>
+            <p>Add a TikTok profile URL or handle and immediately queue a scan.</p>
+          </div>
+        </div>
+
         <form onSubmit={handleAddChannel} className="inline-action-form">
-          <div className="form-group" style={{ flexGrow: 1, minWidth: '250px', marginBottom: 0 }}>
-            <label className="form-label">TikTok Profile URL or @handle</label>
+          <div className="form-group grow-field">
+            <label className="form-label">TikTok profile URL or @handle</label>
             <input
               type="text"
               className="text-input"
-              placeholder="e.g. https://www.tiktok.com/@khaby.lame or simply @khaby.lame"
+              placeholder="@khaby.lame"
               value={newUrl}
               onChange={(e) => setNewUrl(e.target.value)}
               disabled={loading}
@@ -96,35 +115,36 @@ export default function ChannelManager({ onNavigateToQueue }) {
             />
           </div>
           <button type="submit" className="btn btn-primary" disabled={loading}>
-            {loading ? 'Adding...' : 'Monitor Profile'}
+            {loading ? 'Adding...' : 'Monitor profile'}
           </button>
         </form>
-        {error && <div style={{ color: 'var(--status-danger)', marginTop: '1rem', fontWeight: 600 }}>{error}</div>}
-      </div>
 
-      {/* Monitored Channels Grid/Table */}
-      <div className="glass-panel">
-        <h2 className="logo-text" style={{ fontSize: '1.5rem', marginBottom: '1.5rem' }}>Currently Monitored Profiles</h2>
+        {message && <div className="alert success">{message}</div>}
+        {error && <div className="alert danger">{error}</div>}
+      </section>
+
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <h2 className="logo-text">Monitored profiles</h2>
+            <p>{channels.length} profiles tracked in channels.txt.</p>
+          </div>
+        </div>
+
         {channels.length === 0 ? (
-          <div className="empty-state" style={{ padding: '2rem 0' }}>
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-              <circle cx="9" cy="7" r="4" />
-              <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-            </svg>
+          <div className="empty-state">
             <h3>No profiles monitored yet</h3>
-            <p>Monitored profiles are saved in channels.txt and scanned periodically for new videos.</p>
+            <p>Added profiles are scanned periodically and their downloaded posts appear in Archive.</p>
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
+          <div className="table-scroll">
             <table className="channel-table">
               <thead>
                 <tr>
                   <th>Profile</th>
                   <th>Status</th>
-                  <th>Archive Count</th>
-                  <th>Last Scanned</th>
+                  <th>Archive count</th>
+                  <th>Last scanned</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -137,71 +157,36 @@ export default function ChannelManager({ onNavigateToQueue }) {
                           {chan.username.slice(0, 1).toUpperCase()}
                         </div>
                         <div>
-                          <div style={{ fontWeight: 700 }}>@{chan.username}</div>
-                          <a
-                            href={chan.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textDecoration: 'none' }}
-                          >
+                          <div className="channel-name">@{chan.username}</div>
+                          <a href={chan.url} target="_blank" rel="noopener noreferrer" className="muted-link">
                             Open TikTok
                           </a>
                         </div>
                       </div>
                     </td>
                     <td data-label="Status">
-                      <span
-                        style={{
-                          fontSize: '0.8rem',
-                          fontWeight: 700,
-                          color: chan.is_monitored ? 'var(--status-success)' : 'var(--text-muted)',
-                          background: chan.is_monitored ? 'rgba(16, 185, 129, 0.1)' : 'rgba(255,255,255,0.03)',
-                          padding: '0.25rem 0.5rem',
-                          borderRadius: '4px',
-                          textTransform: 'uppercase'
-                        }}
-                      >
+                      <span className={`state-badge ${chan.is_monitored ? 'ok' : 'muted'}`}>
                         {chan.is_monitored ? 'Monitored' : 'Inactive'}
                       </span>
                     </td>
-                    <td data-label="Archive Count" style={{ fontWeight: 700, fontFamily: 'Outfit' }}>
+                    <td data-label="Archive count" className="strong-cell">
                       {chan.downloaded_count} posts
                     </td>
-                    <td data-label="Last Scanned" style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                    <td data-label="Last scanned" className="muted-cell">
                       {formatDate(chan.last_checked_at)}
                     </td>
-                    <td data-label="Actions" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                      {chan.is_monitored ? (
-                        <button
-                          type="button"
-                          className="btn btn-secondary"
-                          style={{
-                            padding: '0.4rem 0.85rem',
-                            fontSize: '0.85rem',
-                            color: 'var(--status-danger)',
-                            borderColor: 'rgba(239, 68, 68, 0.2)'
-                          }}
-                          onClick={() => handleRemoveChannel(chan.id)}
-                        >
-                          Stop Monitoring
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          className="btn btn-secondary"
-                          style={{ padding: '0.4rem 0.85rem', fontSize: '0.85rem' }}
-                          onClick={async () => {
-                            await fetch('/api/channels', {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ url: chan.url })
-                            });
-                            fetchChannels();
-                          }}
-                        >
-                          Re-monitor
-                        </button>
-                      )}
+                    <td data-label="Actions">
+                      <div className="row-actions">
+                        {chan.is_monitored ? (
+                          <button type="button" className="btn btn-secondary danger-text" onClick={() => handleRemoveChannel(chan.id)}>
+                            Stop
+                          </button>
+                        ) : (
+                          <button type="button" className="btn btn-secondary" onClick={() => handleRemonitor(chan.url)}>
+                            Re-monitor
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -209,7 +194,7 @@ export default function ChannelManager({ onNavigateToQueue }) {
             </table>
           </div>
         )}
-      </div>
+      </section>
     </div>
   );
 }
