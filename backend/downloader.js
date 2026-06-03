@@ -44,6 +44,12 @@ headers = {
     "Accept-Language": "en-US,en;q=0.9",
     "Referer": referer,
 }
+if os.environ.get("VSCO_AUTHORIZATION"):
+    headers["Authorization"] = os.environ["VSCO_AUTHORIZATION"]
+if os.environ.get("VSCO_CLIENT_PLATFORM"):
+    headers["X-Client-Platform"] = os.environ["VSCO_CLIENT_PLATFORM"]
+if os.environ.get("VSCO_CLIENT_BUILD"):
+    headers["X-Client-Build"] = os.environ["VSCO_CLIENT_BUILD"]
 response = requests.get(
     url,
     headers=headers,
@@ -54,7 +60,7 @@ response = requests.get(
 if response.status_code >= 400:
     sys.stderr.write(f"VSCO browser fetch failed: HTTP {response.status_code} {response.url}\n")
     sys.exit(2)
-if mode == "page":
+if mode in ("page", "json"):
     sys.stdout.write(response.text)
 elif mode == "download":
     if not output_path:
@@ -115,6 +121,13 @@ const getVscoMediaId = (url) => {
   } catch {
     return '';
   }
+};
+
+const isVscoMediaUrl = (url) => Boolean(getVscoMediaId(url));
+
+const getVscoGalleryUrl = (url) => {
+  const user = getVscoUser(url);
+  return user ? `https://vsco.co/${user}/gallery` : url;
 };
 
 const getExtensionFromUrl = (url, fallback = '.jpg') => {
@@ -255,6 +268,8 @@ const spawnTool = ({ command, args, label, postId, options, onStdout }) => new P
     logger.warn(`${label} stderr`, { post_id: postId, output: text.trim() });
   });
 
+  proc.on('error', (error) => reject(error));
+
   proc.on('close', (code, signal) => {
     if (code !== 0) {
       reject(new Error(stderr.trim() || `${label} failed${signal ? ` (${signal})` : ` (code ${code})`}`));
@@ -283,11 +298,16 @@ const spawnCapture = ({ command, args, label, options, env = {} }) => new Promis
   });
 });
 
-const runVscoBrowserFetch = async ({ mode, url, referer, outputPath = '', options, accept }) => {
+const runVscoBrowserFetch = async ({ mode, url, referer, outputPath = '', options, accept, authorization }) => {
   const args = ['-c', VSCO_FETCH_SCRIPT, mode, url, referer, outputPath];
   const env = {
     VSCO_USER_AGENT,
-    ...(accept ? { VSCO_FETCH_ACCEPT: accept } : {})
+    ...(accept ? { VSCO_FETCH_ACCEPT: accept } : {}),
+    ...(authorization ? {
+      VSCO_AUTHORIZATION: authorization,
+      VSCO_CLIENT_PLATFORM: 'web',
+      VSCO_CLIENT_BUILD: '1'
+    } : {})
   };
 
   try {
@@ -305,9 +325,9 @@ const runVscoBrowserFetch = async ({ mode, url, referer, outputPath = '', option
 };
 
 const normalizeVscoMediaUrl = (media = {}) => {
-  if (media.isVideo && media.videoUrl) return String(media.videoUrl);
-  if (media.playbackUrl) return String(media.playbackUrl);
-  const rawUrl = media.responsiveUrl || media.posterUrl;
+  if ((media.isVideo || media.is_video) && (media.videoUrl || media.video_url)) return String(media.videoUrl || media.video_url);
+  if (media.playbackUrl || media.playback_url) return String(media.playbackUrl || media.playback_url);
+  const rawUrl = media.responsiveUrl || media.responsive_url || media.posterUrl || media.poster_url;
   if (!rawUrl) return '';
   if (rawUrl.startsWith('http')) return rawUrl;
   const base = rawUrl.replace(/^\/\//, '');
@@ -393,6 +413,107 @@ const downloadVscoDirect = async ({ url, itemDir, postId, options }) => {
   return {
     media,
     filePath
+  };
+};
+
+const unwrapVscoMedia = (item = {}) => {
+  if (item.media) return item.media;
+  if (item.image) return item.image;
+  if (item.video) return item.video;
+  if (item.type && item[item.type]) return item[item.type];
+  return item;
+};
+
+const getVscoMediaUploadDate = (media = {}) => {
+  const raw = media.uploadDate || media.upload_date || media.createdDate || media.created_date || media.captureDate || media.capture_date;
+  if (!raw) return '';
+  const date = new Date(Number(raw));
+  return Number.isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 10);
+};
+
+const getVscoPreloadedMedia = (state = {}) => [
+  ...Object.values(state?.medias?.byId || {}).map(unwrapVscoMedia),
+  ...Object.values(state?.entities?.images || {}),
+  ...Object.values(state?.entities?.videos || {})
+].filter((media) => media && normalizeVscoMediaUrl(media));
+
+const uniqueVscoMedia = (items) => {
+  const seen = new Set();
+  return items.filter((media) => {
+    const key = String(media.id || media._id || normalizeVscoMediaUrl(media));
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
+const fetchVscoGalleryApiPage = async ({ apiUrl, galleryUrl, token, options }) => {
+  const text = await runVscoBrowserFetch({
+    mode: 'json',
+    url: apiUrl,
+    referer: galleryUrl,
+    options,
+    accept: 'application/json',
+    authorization: `Bearer ${token}`
+  });
+  return JSON.parse(text);
+};
+
+const downloadVscoGalleryDirect = async ({ url, itemDir, options, onProgress }) => {
+  const galleryUrl = getVscoGalleryUrl(url);
+  const user = getVscoUser(url);
+  const html = await fetchVscoPage(galleryUrl, options);
+  const state = extractVscoPreloadedState(html);
+  const token = state?.users?.currentUser?.tkn;
+  const site = state?.sites?.siteByUsername?.[user]?.site;
+  const siteId = site?.id;
+  let mediaItems = getVscoPreloadedMedia(state);
+
+  if (token && siteId) {
+    let cursor = '';
+    let page = 0;
+    const maxPages = Number.parseInt(process.env.VSCO_DIRECT_GALLERY_MAX_PAGES || '250', 10);
+
+    try {
+      do {
+        const params = new URLSearchParams({ site_id: String(siteId), limit: '30' });
+        if (cursor) params.set('cursor', cursor);
+        const apiUrl = `https://vsco.co/api/3.0/medias/profile?${params.toString()}`;
+        const data = await fetchVscoGalleryApiPage({ apiUrl, galleryUrl, token, options });
+        const pageMedia = (data.media || data.medias || []).map(unwrapVscoMedia);
+        mediaItems = mediaItems.concat(pageMedia);
+        cursor = data.next_cursor || '';
+        page += 1;
+        onProgress?.(35, `Fetched VSCO gallery page ${page} with ${pageMedia.length} items...`);
+      } while (cursor && page < maxPages);
+    } catch (error) {
+      logger.warn('VSCO gallery API fallback failed; using preloaded gallery media', { url, error });
+    }
+  }
+
+  mediaItems = uniqueVscoMedia(mediaItems);
+  if (mediaItems.length === 0) {
+    throw new Error('VSCO gallery fallback did not find downloadable media');
+  }
+
+  let downloaded = 0;
+  for (const media of mediaItems) {
+    const mediaUrl = normalizeVscoMediaUrl(media);
+    if (!mediaUrl) continue;
+    const mediaId = safeSegment(media.id || media._id || hashValue(mediaUrl));
+    const isVideo = Boolean(media.isVideo || media.is_video || media.videoUrl || media.video_url || media.playbackUrl || media.playback_url);
+    const extension = getExtensionFromUrl(mediaUrl, isVideo ? '.mp4' : '.jpg');
+    const filePath = path.join(itemDir, `${mediaId}${extension}`);
+    await downloadVscoAsset({ mediaUrl, filePath, referer: galleryUrl, isVideo, options });
+    downloaded += 1;
+    onProgress?.(35 + Math.min(40, Math.round((downloaded / mediaItems.length) * 40)), `Downloaded ${downloaded}/${mediaItems.length} VSCO gallery items...`);
+  }
+
+  return {
+    mediaCount: mediaItems.length,
+    downloaded,
+    firstUploadDate: getVscoMediaUploadDate(mediaItems[0]),
+    site
   };
 };
 
@@ -509,10 +630,15 @@ const downloadWithGalleryDl = async (url, onProgress, options, context = {}) => 
     toolError = error;
     if (isVscoUrl(url)) {
       logger.warn('gallery-dl VSCO download failed; trying direct fallback', { post_id: postId, error });
-      onProgress(35, 'gallery-dl was blocked by VSCO. Trying direct media fallback...');
+      onProgress(35, 'gallery-dl was blocked by VSCO. Trying VSCO direct fallback...');
       try {
-        const fallback = await downloadVscoDirect({ url, itemDir, postId, options });
-        context.metadata = { ...(context.metadata || {}), vsco_direct_media: fallback.media };
+        if (isVscoMediaUrl(url)) {
+          const fallback = await downloadVscoDirect({ url, itemDir, postId, options });
+          context.metadata = { ...(context.metadata || {}), vsco_direct_media: fallback.media };
+        } else {
+          const fallback = await downloadVscoGalleryDirect({ url, itemDir, options, onProgress });
+          context.metadata = { ...(context.metadata || {}), vsco_direct_gallery: fallback };
+        }
         toolError = null;
       } catch (fallbackError) {
         toolError = fallbackError;
@@ -534,7 +660,7 @@ const downloadWithGalleryDl = async (url, onProgress, options, context = {}) => 
   const finalThumbnailPath = firstImage ? toWebPath(firstImage) : '';
   const metadata = {
     ...(context.metadata || {}),
-    downloader: 'gallery-dl',
+    downloader: context.metadata?.vsco_direct_gallery || context.metadata?.vsco_direct_media ? 'gallery-dl+vsco-direct-fallback' : 'gallery-dl',
     gallery_dl_filename: context.filenameFormat || GALLERY_DL_DEFAULT_FILENAME,
     gallery_dl_tls12: isVscoUrl(url) ? true : undefined,
     vsco_user: isVscoUrl(url) ? getVscoUser(url) : undefined,
