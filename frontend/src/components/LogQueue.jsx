@@ -40,6 +40,12 @@ const jobStatusTone = (status) => {
   return 'muted';
 };
 
+const jobTypeLabel = (type) => {
+  if (type === 'channel') return 'profile scan';
+  if (type === 'gallery-dl') return 'gallery-dl';
+  return 'download';
+};
+
 const countByStatus = (jobs) => jobs.reduce((counts, job) => {
   counts[job.status] = (counts[job.status] || 0) + 1;
   return counts;
@@ -59,7 +65,7 @@ function JobRow({ job, selected, onSelect, onAction }) {
           <span className={`job-status-badge ${job.status}`}>{job.status}</span>
         </span>
         <span className="job-subline">
-          <span className={`job-type-badge ${job.type}`}>{job.type === 'post' ? 'download' : 'profile scan'}</span>
+          <span className={`job-type-badge ${job.type}`}>{jobTypeLabel(job.type)}</span>
           <span>{progress}%</span>
           <span>{durationLabel(job)}</span>
           <span>try {job.attempt_count || 0}/{job.max_attempts || 3}</span>
@@ -184,6 +190,7 @@ export default function LogQueue({ onQueueChanged }) {
           <option value="">All types</option>
           <option value="channel">Channels</option>
           <option value="post">Downloads</option>
+          <option value="gallery-dl">gallery-dl</option>
         </select>
         <button type="button" className="btn btn-secondary" onClick={() => handleAction(state.isPaused ? '/api/queue/resume' : '/api/queue/pause')}>
           {state.isPaused ? 'Resume queue' : 'Pause queue'}

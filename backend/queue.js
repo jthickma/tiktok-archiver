@@ -1,5 +1,5 @@
 import { dbRun, dbGet, dbAll } from './database.js';
-import { downloadPost, scanProfile, extractUsername } from './downloader.js';
+import { downloadPost, downloadWithGalleryDl, scanProfile, extractUsername } from './downloader.js';
 import { logger } from './logger.js';
 import { ApiError } from './validation.js';
 
@@ -7,6 +7,13 @@ let isProcessing = false;
 let isPaused = false;
 const activeProcesses = new Map();
 const LOG_CAP = 200000;
+const JOB_TYPES = new Set(['channel', 'post', 'gallery-dl']);
+
+const jobTypeLabel = (type) => {
+  if (type === 'channel') return 'profile scan';
+  if (type === 'gallery-dl') return 'gallery-dl download';
+  return 'download';
+};
 
 const classifyError = (error) => {
   const message = error?.message || '';
@@ -73,6 +80,10 @@ const updateJobStatus = async (jobId, progress, status, statusText = '', errorMs
 
 // Queue a new URL for downloading
 export const enqueue = async (url, type, options = {}) => {
+  if (!JOB_TYPES.has(type)) {
+    throw new ApiError(400, 'INVALID_JOB_TYPE', 'Job type is not supported');
+  }
+
   const time = new Date().toISOString();
   try {
     const result = await dbRun(
@@ -97,11 +108,11 @@ export const enqueue = async (url, type, options = {}) => {
       if (existingJob && ['failed', 'completed', 'cancelled'].includes(existingJob.status)) {
         await dbRun(
           `UPDATE download_jobs 
-           SET status = 'pending', progress = 0, log_output = '', error_message = NULL,
+           SET type = ?, status = 'pending', progress = 0, log_output = '', error_message = NULL,
                created_at = ?, started_at = NULL, completed_at = NULL, attempt_count = 0,
                next_attempt_at = NULL, last_error_class = NULL, cancelled_at = NULL
            WHERE id = ?`,
-          [time, existingJob.id]
+          [type, time, existingJob.id]
         );
         processQueue();
         return {
@@ -239,7 +250,7 @@ export const processQueue = async () => {
       logger.info('queue processing job', { job_id: job.id, url: job.url, type: job.type });
       await dbRun('UPDATE download_jobs SET attempt_count = COALESCE(attempt_count, 0) + 1 WHERE id = ?', [job.id]);
       const freshJob = await dbGet('SELECT * FROM download_jobs WHERE id = ?', [job.id]);
-      await updateJobStatus(job.id, 0, 'downloading', `Started processing ${job.type} job.`);
+      await updateJobStatus(job.id, 0, 'downloading', `Started ${jobTypeLabel(job.type)} job.`);
 
       try {
         const processOptions = {
@@ -282,14 +293,17 @@ export const processQueue = async () => {
             `Scan complete. Found ${entries.length} total posts. Added ${newPostsCount} new posts to the download queue.`
           );
 
-        } else if (job.type === 'post') {
+        } else if (job.type === 'post' || job.type === 'gallery-dl') {
           // SINGLE POST DOWNLOAD JOB
-          await downloadPost(job.url, async (progress, statusText) => {
+          const downloader = job.type === 'gallery-dl' ? downloadWithGalleryDl : downloadPost;
+          await downloader(job.url, async (progress, statusText) => {
             await updateJobStatus(job.id, progress, 'downloading', statusText);
           }, processOptions);
           const latest = await dbGet('SELECT status FROM download_jobs WHERE id = ?', [job.id]);
           if (latest?.status === 'cancelled') continue;
           await updateJobStatus(job.id, 100, 'completed');
+        } else {
+          throw new ApiError(400, 'INVALID_JOB_TYPE', `Unsupported job type: ${job.type}`);
         }
       } catch (err) {
         const latest = await dbGet('SELECT * FROM download_jobs WHERE id = ?', [job.id]);

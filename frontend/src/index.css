@@ -519,6 +519,14 @@ a:focus-visible {
   color: var(--text);
 }
 
+.download-mode {
+  width: 100%;
+}
+
+.download-mode button {
+  flex: 1 1 0;
+}
+
 .check-pill {
   display: inline-flex;
   align-items: center;
@@ -870,6 +878,10 @@ a:focus-visible {
 
 .job-type-badge.channel {
   color: var(--accent-2);
+}
+
+.job-type-badge.gallery-dl {
+  color: var(--info);
 }
 
 .job-status-badge.downloading {

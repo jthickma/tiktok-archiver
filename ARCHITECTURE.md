@@ -92,7 +92,7 @@ Tables:
 | --- | --- |
 | `id` | TikTok post ID |
 | `channel_id` | Channel key such as `@username` |
-| `type` | `video` or `slideshow` |
+| `type` | `video`, `slideshow`, `image`, `gallery`, `audio`, or `media` |
 | `title` | Metadata title |
 | `description` | Metadata description |
 | `url` | Original or resolved post URL |
@@ -108,14 +108,19 @@ Tables:
 | --- | --- |
 | `id` | Autoincrement job ID |
 | `url` | Queued URL, unique |
-| `type` | `channel` or `post` |
-| `status` | `pending`, `downloading`, `completed`, or `failed` |
+| `type` | `channel`, `post`, or `gallery-dl` |
+| `status` | `pending`, `downloading`, `completed`, `failed`, or `cancelled` |
 | `progress` | Integer percentage |
 | `log_output` | Accumulated job log |
 | `error_message` | Failure reason |
 | `created_at` | ISO timestamp |
 | `started_at` | ISO timestamp |
 | `completed_at` | ISO timestamp |
+| `attempt_count` | Number of worker attempts |
+| `max_attempts` | Maximum attempts before terminal failure |
+| `next_attempt_at` | ISO timestamp for retry backoff |
+| `last_error_class` | Last classified failure group |
+| `cancelled_at` | ISO timestamp for user cancellation |
 
 ### Downloader Module
 
@@ -127,7 +132,7 @@ Responsibilities:
 - Fetch post metadata through `yt-dlp --dump-json`.
 - Scan profile entries through `yt-dlp --flat-playlist --dump-json`.
 - Download videos through `yt-dlp`.
-- Download slideshow images through `gallery-dl`.
+- Download slideshow and explicit gallery jobs through `gallery-dl`.
 - Preserve media file modification dates from upload dates when possible.
 - Insert downloaded post metadata into SQLite.
 
@@ -155,7 +160,8 @@ Job lifecycle:
 
 ```text
 pending -> downloading -> completed
-                      \-> failed
+                      |-> failed
+                      \-> cancelled
 ```
 
 Channel job flow:
@@ -180,7 +186,17 @@ post URL
   -> complete post job
 ```
 
-The queue is persistent in SQLite but the worker state is in process memory. If the process exits while a job is marked `downloading`, startup currently does not automatically reset that job to `pending` or `failed`.
+Explicit gallery-dl job flow:
+
+```text
+HTTP URL
+  -> gallery-dl
+  -> collect downloaded media files
+  -> write post row
+  -> complete gallery-dl job
+```
+
+The queue is persistent in SQLite but the worker state is in process memory. Startup recovers interrupted `downloading` jobs back to `pending` with a recovery log entry.
 
 ## Frontend Modules
 
@@ -226,8 +242,8 @@ File: `frontend/src/components/DownloaderForm.jsx`
 
 Responsibilities:
 
-- Accept any TikTok profile, video, or slideshow URL.
-- Submit it to `/api/download-url`.
+- Accept any TikTok profile, video, slideshow, gallery, or generic supported media URL.
+- Submit it to `/api/download-url` with `downloader: "auto"` or `downloader: "gallery-dl"`.
 - Navigate users to the queue after successful submission.
 
 ### Cookie Editor

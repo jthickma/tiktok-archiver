@@ -4,12 +4,12 @@ This file lists recommended improvements from an extensive review of the current
 
 ## Executive Summary
 
-The app already has a coherent core: profiles are monitored, jobs persist in SQLite, downloads land in predictable folders, and the UI exposes the main workflows. The biggest risks are operational rather than cosmetic:
+The app already has a coherent core: profiles are monitored, jobs persist in SQLite, downloads land in predictable folders, and the UI exposes the main workflows. Queue recovery, bounded retries, log capping, and cancellation controls have been implemented. The biggest remaining risks are operational and maintenance-oriented rather than cosmetic:
 
-- Queue recovery is incomplete after process crashes.
-- Validation is thin around URLs, IDs, pagination, and file access.
-- Backend modules are shallow in places: routing, synchronization, monitor scheduling, and validation all live in `backend/index.js`.
-- The frontend is useful but optimized like a showcase dashboard rather than a dense archive-management tool.
+- `backend/downloader.js` and `frontend/src/index.css` are large enough that future feature work can easily become entangled.
+- Tool integrations have syntax/build coverage but limited behavioral tests around queue transitions, duplicate handling, and downloader fallback choices.
+- URL and request validation is improved, but URL canonicalization still relies on thrown generic errors in `backend/identity.js`.
+- The frontend is useful but several components remain broad, especially archive browsing and queue display.
 
 
 
@@ -17,22 +17,17 @@ The app already has a coherent core: profiles are monitored, jobs persist in SQL
 
 ### 1. Recover interrupted jobs on startup
 
+Status: Implemented.
+
 Files:
 
 - `backend/database.js`
 - `backend/queue.js`
 - `backend/index.js`
 
-Problem:
+Current behavior:
 
-The queue stores jobs in SQLite, but `isProcessing` is memory-only. If the process exits during a job, that job can remain `downloading` forever and will not be selected by the pending-job loop.
-
-Recommendation:
-
-On startup, mark stale `downloading` jobs as `failed` or `pending` with a log entry explaining the recovery. Prefer a policy:
-
-- `channel` scans can safely reset to `pending`.
-- `post` downloads should reset to `pending` after cleaning or verifying partial files.
+Startup calls `recoverInterruptedJobs()` and resets stale `downloading` rows to `pending` with a recovery log entry. The remaining improvement is testing this startup path with a seeded database.
 
 Benefits:
 
@@ -71,6 +66,8 @@ Benefits:
 
 ### 3. Add bounded retries, backoff, and rate controls
 
+Status: Partially implemented.
+
 Files:
 
 - `backend/queue.js`
@@ -78,18 +75,11 @@ Files:
 
 Problem:
 
-Jobs fail once and must be manually requeued. Profile scans can enqueue many post jobs quickly. The monitor queues every monitored channel at the same cadence.
+Jobs now retry with bounded exponential backoff, but profile scans can still enqueue many post jobs quickly. The monitor queues every monitored channel at the same cadence.
 
 Recommendation:
 
-Add retry metadata to `download_jobs`:
-
-- `attempt_count`
-- `max_attempts`
-- `next_attempt_at`
-- `last_error_class`
-
-Implement exponential backoff for network/tool failures, no retry for validation failures, and optional per-host rate limits.
+Keep the existing retry metadata and add optional per-host rate limits.
 
 Benefits:
 
@@ -99,25 +89,17 @@ Benefits:
 
 ### 4. Add explicit job cancellation and pause controls
 
+Status: Implemented.
+
 Files:
 
 - `backend/queue.js`
 - `backend/downloader.js`
 - `frontend/src/components/LogQueue.jsx`
 
-Problem:
+Current behavior:
 
-Users can enqueue and observe jobs, but cannot cancel a stuck or unwanted job from the UI.
-
-Recommendation:
-
-Track active child processes by job ID. Add:
-
-- `POST /api/queue/:id/cancel`
-- `POST /api/queue/pause`
-- `POST /api/queue/resume`
-
-Use process termination carefully and persist a `cancelled` status.
+The queue tracks active child processes by job ID, persists `cancelled` status, and exposes pause/resume/cancel controls in the UI. The remaining improvement is automated coverage around cancellation during `yt-dlp` and `gallery-dl` child processes.
 
 Benefits:
 

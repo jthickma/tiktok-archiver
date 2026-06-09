@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 
 export default function DownloaderForm({ onNavigateToQueue }) {
   const [url, setUrl] = useState('');
+  const [downloader, setDownloader] = useState('auto');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -18,7 +19,7 @@ export default function DownloaderForm({ onNavigateToQueue }) {
       const res = await fetch('/api/download-url', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: url.trim() })
+        body: JSON.stringify({ url: url.trim(), downloader })
       });
 
       const data = await res.json();
@@ -27,7 +28,8 @@ export default function DownloaderForm({ onNavigateToQueue }) {
       }
 
       const jobStatus = data.job?.requeued ? 'requeued' : data.job?.created ? 'queued' : 'already queued';
-      setMessage(`${data.type === 'channel' ? 'Profile scan' : 'Download'} ${jobStatus}. Job #${data.job?.id || 'pending'} is ready in the queue.`);
+      const jobLabel = data.type === 'channel' ? 'Profile scan' : data.type === 'gallery-dl' ? 'gallery-dl download' : 'Download';
+      setMessage(`${jobLabel} ${jobStatus}. Job #${data.job?.id || 'pending'} is ready in the queue.`);
       setUrl('');
 
       if (onNavigateToQueue) {
@@ -73,6 +75,18 @@ export default function DownloaderForm({ onNavigateToQueue }) {
             />
           </div>
 
+          <div className="form-group">
+            <label className="form-label">Downloader</label>
+            <div className="segmented-control download-mode">
+              <button type="button" className={downloader === 'auto' ? 'active' : ''} onClick={() => setDownloader('auto')} disabled={loading}>
+                Auto
+              </button>
+              <button type="button" className={downloader === 'gallery-dl' ? 'active' : ''} onClick={() => setDownloader('gallery-dl')} disabled={loading}>
+                gallery-dl
+              </button>
+            </div>
+          </div>
+
           <button type="submit" className="btn btn-primary full-width" disabled={loading}>
             {loading ? 'Queueing...' : 'Queue download'}
           </button>
@@ -87,7 +101,7 @@ export default function DownloaderForm({ onNavigateToQueue }) {
         <div className="tip-grid">
           <span>TikTok profiles scan for new posts.</span>
           <span>Post URLs download a single item.</span>
-          <span>VSCO and generic galleries use gallery-dl.</span>
+          <span>gallery-dl can be selected for any HTTP URL.</span>
           <span>Archived media appears in the Archive view.</span>
         </div>
       </section>

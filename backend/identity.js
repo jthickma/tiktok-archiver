@@ -21,7 +21,12 @@ export const normalizeProfileUrl = (input) => {
     return `https://www.tiktok.com/${normalizeHandle(value)}`;
   }
 
-  const url = new URL(value);
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error('URL is invalid');
+  }
   if (!/(^|\.)tiktok\.com$/i.test(url.hostname)) {
     throw new Error('Only TikTok URLs are supported');
   }
@@ -48,7 +53,12 @@ export const canonicalizeTikTokUrl = (input) => {
     return normalizeProfileUrl(value);
   }
 
-  const url = new URL(value);
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error('URL is invalid');
+  }
   if (!/(^|\.)tiktok\.com$/i.test(url.hostname)) {
     throw new Error('Only TikTok URLs are supported');
   }
@@ -67,7 +77,31 @@ export const canonicalizeHttpUrl = (input) => {
     return canonicalizeTikTokUrl(value);
   }
 
-  const url = new URL(value);
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error('URL is invalid');
+  }
+  if (!['http:', 'https:'].includes(url.protocol)) {
+    throw new Error('Only HTTP and HTTPS URLs are supported');
+  }
+  url.hash = '';
+  return url.toString();
+};
+
+export const canonicalizeStrictHttpUrl = (input) => {
+  const value = String(input || '').trim();
+  if (!value) {
+    throw new Error('URL is required');
+  }
+
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error('URL is invalid');
+  }
   if (!['http:', 'https:'].includes(url.protocol)) {
     throw new Error('Only HTTP and HTTPS URLs are supported');
   }
@@ -106,7 +140,14 @@ export const extractUsername = (url, metadata = {}) => {
   return '@unknown';
 };
 
-export const detectUrlType = (input) => {
+export const detectUrlType = (input, options = {}) => {
+  if (options.downloader === 'gallery-dl') {
+    return {
+      url: canonicalizeStrictHttpUrl(input),
+      type: 'gallery-dl'
+    };
+  }
+
   const normalized = canonicalizeHttpUrl(input);
   const clean = normalized.split('?')[0].replace(/\/+$/, '');
   const isProfile = isTikTokUrl(normalized) && /\/@[a-zA-Z0-9_.-]+$/i.test(clean);

@@ -22,7 +22,7 @@ import { createMonitor } from './monitor.js';
 import { getPost, getPostMediaFiles, searchPosts } from './posts.js';
 import { sendPostMedia, sendPostMediaFile } from './archives.js';
 import { getSystemStatus } from './status.js';
-import { ApiError, parseId, parsePostsQuery, parseQueueQuery, requireBodyString, sendError } from './validation.js';
+import { ApiError, parseDownloaderChoice, parseId, parsePostsQuery, parseQueueQuery, requireBodyString, sendError } from './validation.js';
 import { logger } from './logger.js';
 import { ensurePostThumbnails } from './thumbnails.js';
 
@@ -79,6 +79,14 @@ const readQueueSummary = async () => {
     totalCount: Object.values(counts).reduce((total, count) => total + count, 0),
     problemCount: counts.failed
   };
+};
+
+const parseDownloadTarget = (input, downloader) => {
+  try {
+    return detectUrlType(input, { downloader });
+  } catch (error) {
+    throw new ApiError(400, 'INVALID_URL', error.message || 'URL is invalid');
+  }
 };
 
 app.get('/api/status', asyncRoute(async (req, res) => {
@@ -144,11 +152,13 @@ app.get('/api/posts/:id', asyncRoute(async (req, res) => {
 
 app.post('/api/download-url', asyncRoute(async (req, res) => {
   const input = requireBodyString(req.body, 'url');
-  const target = detectUrlType(input);
+  const downloader = parseDownloaderChoice(req.body?.downloader);
+  const target = parseDownloadTarget(input, downloader);
   const job = await enqueue(target.url, target.type);
   res.status(job.created ? 201 : 200).json({
     message: job.requeued ? 'URL requeued for download' : job.created ? 'URL added to download queue' : 'URL is already in the queue',
     type: target.type,
+    downloader,
     job
   });
 }));

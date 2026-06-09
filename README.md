@@ -6,7 +6,7 @@ TikTok Archiver is a self-hosted media archive for TikTok profiles, individual v
 
 - Monitor TikTok profiles listed in the web UI or `data/channels.txt`.
 - Scan monitored profiles every six hours and queue newly discovered posts.
-- Download individual TikTok video or photo slideshow URLs on demand.
+- Download individual TikTok video, photo slideshow, gallery, and generic supported URLs on demand.
 - Store archive metadata in SQLite at `data/tiktok.db`.
 - Store media files on disk under `downloads/@handle/`.
 - Browse, filter, preview, and download archived media from the web UI.
@@ -183,7 +183,7 @@ Stopping monitoring keeps existing archived media and only sets the profile inac
 
 ### Download
 
-The Download tab queues a single media URL. TikTok profile URLs become `channel` jobs. Direct videos and supported video pages are handled with `yt-dlp`; gallery-style URLs, including VSCO galleries, are handled with `gallery-dl` and appear in the archive for viewing and per-file downloads.
+The Download tab queues a single media URL. Auto mode turns TikTok profile URLs into `channel` jobs and downloads other media with `yt-dlp`, falling back to `gallery-dl` when needed. Selecting `gallery-dl` queues an explicit `gallery-dl` job for any HTTP or HTTPS URL supported by gallery-dl. Downloaded galleries appear in the archive for viewing and per-file downloads.
 
 ### Cookies
 
@@ -207,7 +207,7 @@ On startup, any interrupted `downloading` jobs are recovered back to `pending` w
 | `GET` | `/api/posts/:id` | Get post details and downloaded media file list |
 | `GET` | `/api/posts/:id/download` | Download one post media file |
 | `GET` | `/api/posts/:id/files/:index/download` | Download one file from a gallery-style archive item |
-| `POST` | `/api/download-url` | Queue an arbitrary TikTok profile or media URL |
+| `POST` | `/api/download-url` | Queue an arbitrary TikTok profile or media URL; accepts optional `downloader: "auto"` or `"gallery-dl"` |
 | `GET` | `/api/queue` | List active and recent jobs |
 | `GET` | `/api/queue/:id/logs` | Read a job log |
 | `POST` | `/api/queue/:id/cancel` | Cancel a pending or active job |

@@ -25,6 +25,15 @@ export const requireBodyString = (body, field) => {
   return value.trim();
 };
 
+export const parseDownloaderChoice = (value) => {
+  const downloader = String(value || 'auto').trim();
+  const allowedDownloaders = new Set(['auto', 'gallery-dl']);
+  if (!allowedDownloaders.has(downloader)) {
+    throw new ApiError(400, 'INVALID_BODY', 'downloader is not supported');
+  }
+  return downloader;
+};
+
 export const parseId = (value, name = 'id') => {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isInteger(parsed) || parsed <= 0) {
@@ -79,7 +88,7 @@ export const parseQueueQuery = (query) => {
   const status = String(query.status || '').trim();
   const type = String(query.type || '').trim();
   const allowedStatuses = new Set(['', 'pending', 'downloading', 'completed', 'failed', 'cancelled']);
-  const allowedTypes = new Set(['', 'channel', 'post']);
+  const allowedTypes = new Set(['', 'channel', 'post', 'gallery-dl']);
 
   if (!allowedStatuses.has(status)) {
     throw new ApiError(400, 'INVALID_QUERY', 'status is not supported');

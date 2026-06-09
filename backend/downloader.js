@@ -591,7 +591,7 @@ const buildPostData = ({ id, channelId, type, title, description, url, uploadDat
   metadata_json: JSON.stringify(metadata)
 });
 
-const downloadWithGalleryDl = async (url, onProgress, options, context = {}) => {
+export const downloadWithGalleryDl = async (url, onProgress, options, context = {}) => {
   const postId = context.postId || createPostId(url, context.metadata);
   const channelId = context.channelId || sourceIdFromUrl(url, context.metadata);
   const uploadDate = context.uploadDate || uploadDateFromMetadata(context.metadata);
