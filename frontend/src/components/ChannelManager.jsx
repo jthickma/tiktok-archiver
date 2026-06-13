@@ -1,10 +1,6 @@
 import React, { useEffect, useState } from 'react';
-
-const formatDate = (isoString) => {
-  if (!isoString) return 'Never checked';
-  const date = new Date(isoString);
-  return date.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
-};
+import { requestJson } from '../utils/api';
+import { formatDateTime } from '../utils/format';
 
 export default function ChannelManager({ onNavigateToQueue }) {
   const [channels, setChannels] = useState([]);
@@ -14,9 +10,7 @@ export default function ChannelManager({ onNavigateToQueue }) {
   const [message, setMessage] = useState('');
 
   const fetchChannels = async () => {
-    const res = await fetch('/api/channels');
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error?.message || 'Failed to load profiles');
+    const data = await requestJson('/api/channels', {}, 'Failed to load profiles');
     setChannels(Array.isArray(data) ? data : []);
   };
 
@@ -25,14 +19,11 @@ export default function ChannelManager({ onNavigateToQueue }) {
   }, []);
 
   const monitorProfile = async (url) => {
-    const res = await fetch('/api/channels', {
+    return requestJson('/api/channels', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url })
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error?.message || data.error || 'Failed to add profile');
-    return data;
+    }, 'Failed to add profile');
   };
 
   const handleAddChannel = async (e) => {
@@ -67,11 +58,9 @@ export default function ChannelManager({ onNavigateToQueue }) {
     setError('');
     setMessage('');
     try {
-      const res = await fetch(`/api/channels/${encodeURIComponent(channelId)}`, {
+      await requestJson(`/api/channels/${encodeURIComponent(channelId)}`, {
         method: 'DELETE'
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error?.message || 'Failed to stop monitoring profile');
+      }, 'Failed to stop monitoring profile');
       setMessage(`${channelId} monitoring stopped.`);
       await fetchChannels();
     } catch (err) {
@@ -173,7 +162,7 @@ export default function ChannelManager({ onNavigateToQueue }) {
                       {chan.downloaded_count} posts
                     </td>
                     <td data-label="Last scanned" className="muted-cell">
-                      {formatDate(chan.last_checked_at)}
+                      {formatDateTime(chan.last_checked_at, 'Never checked')}
                     </td>
                     <td data-label="Actions">
                       <div className="row-actions">

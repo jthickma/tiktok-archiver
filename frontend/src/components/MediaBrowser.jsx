@@ -1,34 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-
-const fallbackThumb = (type) => {
-  const label = type === 'slideshow' ? 'SLIDES' : type === 'gallery' ? 'GALLERY' : type === 'image' ? 'IMAGE' : type === 'audio' ? 'AUDIO' : 'VIDEO';
-  return `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 320 420'%3E%3Crect width='320' height='420' fill='%2313171f'/%3E%3Ccircle cx='160' cy='178' r='46' fill='%2328313d'/%3E%3Ctext x='160' y='258' text-anchor='middle' fill='%2398a2b3' font-family='Arial' font-size='22'%3E${label}%3C/text%3E%3C/svg%3E`;
-};
-
-const groupedMediaTypes = new Set(['slideshow', 'gallery']);
-const isGroupedMedia = (type) => groupedMediaTypes.has(type);
-const displaySource = (channelId) => channelId?.startsWith('@') ? channelId : channelId || 'unknown source';
-const avatarText = (channelId) => displaySource(channelId).replace(/^@/, '').slice(0, 2).toUpperCase();
-
-const getAvatarColor = (username) => {
-  if (!username) return 'linear-gradient(135deg, #27d3c3, #6aa7ff)';
-  const clean = username.replace(/^@/, '');
-  let hash = 0;
-  for (let i = 0; i < clean.length; i++) {
-    hash = clean.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const colors = [
-    'linear-gradient(135deg, #27d3c3, #0d9488)',
-    'linear-gradient(135deg, #f0526d, #b91c1c)',
-    'linear-gradient(135deg, #6aa7ff, #1d4ed8)',
-    'linear-gradient(135deg, #f0b83a, #b45309)',
-    'linear-gradient(135deg, #a855f7, #6b21a8)',
-    'linear-gradient(135deg, #ec4899, #be185d)',
-    'linear-gradient(135deg, #10b981, #047857)'
-  ];
-  const idx = Math.abs(hash) % colors.length;
-  return colors[idx];
-};
+import { requestJson } from '../utils/api';
+import { formatDateTime } from '../utils/format';
+import { avatarText, displaySource, fallbackThumb, getAvatarColor, isGroupedMedia } from '../utils/media';
 
 export default function MediaBrowser() {
   const [posts, setPosts] = useState([]);
@@ -77,9 +50,7 @@ export default function MediaBrowser() {
     try {
       setError('');
       setLoading(true);
-      const res = await fetch(`/api/posts?${queryString}`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error?.message || 'Failed to load archive');
+      const data = await requestJson(`/api/posts?${queryString}`, {}, 'Failed to load archive');
       setPosts(data.posts || []);
       setTotal(data.total || 0);
     } catch (err) {
@@ -170,9 +141,7 @@ export default function MediaBrowser() {
 
   const fetchChannels = async () => {
     try {
-      const res = await fetch('/api/channels');
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error?.message || 'Failed to load profiles');
+      const data = await requestJson('/api/channels', {}, 'Failed to load profiles');
       setChannels(Array.isArray(data) ? data : []);
     } catch (err) {
       setError(err.message);
@@ -212,9 +181,12 @@ export default function MediaBrowser() {
     setMediaFiles([]);
     setSlideIndex(0);
     if (isGroupedMedia(post.type)) {
-      const res = await fetch(`/api/posts/${post.id}`);
-      const data = await res.json();
-      setMediaFiles(data.media || []);
+      try {
+        const data = await requestJson(`/api/posts/${post.id}`, {}, 'Failed to load media files');
+        setMediaFiles(data.media || []);
+      } catch (err) {
+        setError(err.message);
+      }
     }
   };
 
@@ -455,7 +427,7 @@ export default function MediaBrowser() {
                     </div>
                     <div className="stat-row">
                       <span className="stat-label">Archived At</span>
-                      <span className="stat-value">{activePost.downloaded_at ? new Date(activePost.downloaded_at).toLocaleString() : 'Unknown'}</span>
+                      <span className="stat-value">{formatDateTime(activePost.downloaded_at, 'Unknown')}</span>
                     </div>
                     <div className="stat-row">
                       <span className="stat-label">File Name</span>

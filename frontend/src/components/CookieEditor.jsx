@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { requestJson } from '../utils/api';
 
 export default function CookieEditor() {
   const [cookies, setCookies] = useState('');
@@ -9,9 +10,7 @@ export default function CookieEditor() {
   const fetchCookies = async () => {
     setError('');
     try {
-      const res = await fetch('/api/cookies');
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error?.message || 'Failed to fetch existing cookies');
+      const data = await requestJson('/api/cookies', {}, 'Failed to fetch existing cookies');
       setCookies(data.cookies || '');
     } catch (err) {
       setError(err.message);
@@ -29,16 +28,11 @@ export default function CookieEditor() {
     setMessage('');
 
     try {
-      const res = await fetch('/api/cookies', {
+      await requestJson('/api/cookies', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cookies })
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error?.message || data.error || 'Failed to save cookies');
-      }
+      }, 'Failed to save cookies');
 
       setMessage('Cookies saved. New downloads will use this cookies.txt file.');
     } catch (err) {

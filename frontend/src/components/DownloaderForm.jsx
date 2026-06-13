@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { requestJson } from '../utils/api';
 
 export default function DownloaderForm({ onNavigateToQueue }) {
   const [url, setUrl] = useState('');
@@ -16,16 +17,11 @@ export default function DownloaderForm({ onNavigateToQueue }) {
     setMessage('');
 
     try {
-      const res = await fetch('/api/download-url', {
+      const data = await requestJson('/api/download-url', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: url.trim(), downloader })
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error?.message || data.error || 'Failed to submit download');
-      }
+      }, 'Failed to submit download');
 
       const jobStatus = data.job?.requeued ? 'requeued' : data.job?.created ? 'queued' : 'already queued';
       const jobLabel = data.type === 'channel' ? 'Profile scan' : data.type === 'gallery-dl' ? 'gallery-dl download' : 'Download';

@@ -41,10 +41,10 @@ Responsibilities:
 - Create the Express application.
 - Configure CORS, JSON parsing, and static media serving.
 - Ensure `DATA_DIR` and `DOWNLOADS_DIR` exist.
-- Synchronize `channels.txt` with the SQLite `channels` table.
-- Define all REST API routes.
+- Compose the channel registry, monitor, queue, status, archive, and validation modules.
+- Define thin REST API route adapters.
 - Serve `frontend/dist` in production builds.
-- Initialize the database and start the background monitor.
+- Initialize the database, recover interrupted jobs, and start the background monitor and queue worker.
 
 Important module interfaces:
 
@@ -60,7 +60,7 @@ Important module interfaces:
 - `GET /api/cookies`
 - `POST /api/cookies`
 
-The server module currently mixes routing, validation, archive streaming, file synchronization, and monitor scheduling in one file. This keeps the deployment simple, but it makes route behavior and background behavior tightly coupled.
+The server module is intentionally a composition root. Domain logic lives in modules such as `channels.js`, `posts.js`, `archives.js`, `monitor.js`, `status.js`, `validation.js`, and `queue.js`.
 
 ### Database Module
 
@@ -70,6 +70,8 @@ Responsibilities:
 
 - Open the SQLite database.
 - Create the `channels`, `posts`, and `download_jobs` tables.
+- Create `download_job_logs` and `schema_migrations`.
+- Add missing columns for existing installs.
 - Provide promise wrappers around `sqlite3` methods.
 - Run a startup healing pass that fixes known incorrect numeric channel mappings.
 
@@ -209,7 +211,17 @@ Responsibilities:
 - Own the active navigation tab.
 - Poll summary stats every ten seconds.
 - Render sidebar navigation and dashboard stat cards.
+- Render system readiness chips and the operations overview.
 - Route tab state to feature components without a client router.
+
+### System Overview
+
+File: `frontend/src/components/SystemOverview.jsx`
+
+Responsibilities:
+
+- Show queue worker state, active process count, monitor schedule, tool readiness, storage writability, free disk space, and uptime.
+- Use `/api/status` data supplied by the app shell.
 
 ### Archive Browser
 
@@ -266,6 +278,20 @@ Responsibilities:
 - Poll selected job logs while it is active.
 - Render progress and failure details.
 
+### Shared Frontend Utilities
+
+Files:
+
+- `frontend/src/utils/api.js`
+- `frontend/src/utils/format.js`
+- `frontend/src/utils/media.js`
+
+Responsibilities:
+
+- Normalize frontend JSON request and API error handling.
+- Share byte, date/time, and duration formatting.
+- Share media fallback thumbnails, grouped-media checks, avatar labels, source labels, colors, and readable URL formatting.
+
 ## Data Synchronization
 
 `channels.txt` and the `channels` table are intentionally both sources of operational state:
@@ -300,12 +326,13 @@ Download routes:
 
 ## Deployment Model
 
-The Dockerfile uses two stages:
+The Dockerfile uses three stages:
 
 1. Build React assets in a Node image.
-2. Run the Node backend with system media tools installed.
+2. Install production backend dependencies with native build tooling.
+3. Run the Node backend with system media tools installed.
 
-`docker-compose.yml` maps host port `18080` to container port `8080`, mounts persistent data and downloads, and restarts the container unless stopped.
+`docker-compose.yml` maps host port `18080` to container port `8080`, mounts persistent data and downloads, and restarts the container unless stopped. The image healthcheck calls `/api/status`.
 
 ## Current Architectural Constraints
 
@@ -314,4 +341,4 @@ The Dockerfile uses two stages:
 - SQLite keeps deployment simple but limits horizontal scaling.
 - Download tool output is parsed from child-process streams and persisted as text logs.
 - No authentication, authorization, or multi-user model exists.
-- No test suite currently protects queue behavior, downloader command construction, or API contracts.
+- Existing scripts provide syntax/build checks, but no behavioral test suite currently protects queue behavior, downloader command construction, or API contracts.

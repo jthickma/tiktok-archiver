@@ -43,4 +43,7 @@ RUN mkdir -p /app/data /app/downloads
 
 EXPOSE 8080
 
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD curl -fsS "http://127.0.0.1:${PORT}/api/status" > /dev/null || exit 1
+
 CMD ["node", "backend/index.js"]

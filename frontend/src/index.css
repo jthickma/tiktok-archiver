@@ -248,6 +248,62 @@ a:focus-visible {
   margin-bottom: 18px;
 }
 
+.ops-panel {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.ops-item {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #12151a;
+}
+
+.ops-item.ok {
+  border-color: rgba(54, 194, 117, 0.3);
+}
+
+.ops-item.warn {
+  border-color: rgba(240, 184, 58, 0.34);
+}
+
+.ops-item.danger {
+  border-color: rgba(243, 95, 95, 0.42);
+}
+
+.ops-label,
+.ops-detail {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ops-label {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.ops-item strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ops-detail {
+  font-size: 12px;
+}
+
 .metric {
   min-width: 140px;
   flex: 1 1 140px;
@@ -1518,6 +1574,10 @@ a:focus-visible {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .ops-panel {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .metric {
     min-width: 0;
   }
@@ -1634,6 +1694,10 @@ a:focus-visible {
 
   .media-info strong {
     font-size: 13px;
+  }
+
+  .ops-panel {
+    grid-template-columns: 1fr;
   }
 
   .modal-overlay {

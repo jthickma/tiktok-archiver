@@ -30,11 +30,13 @@ TikTok Archiver is a self-hosted media archive for TikTok profiles, individual v
 |-- frontend/
 |   |-- src/App.jsx
 |   |-- src/components/
+|   |   |-- SystemOverview.jsx
 |   |   |-- MediaBrowser.jsx
 |   |   |-- ChannelManager.jsx
 |   |   |-- DownloaderForm.jsx
 |   |   |-- CookieEditor.jsx
 |   |   `-- LogQueue.jsx
+|   |-- src/utils/       # Shared API, formatting, and media helpers
 |   `-- vite.config.js
 |-- data/               # Runtime state, ignored by git
 |-- downloads/          # Archived media, ignored by git
@@ -73,6 +75,8 @@ Persistent runtime files are mounted from the host:
 ./data      -> /app/data
 ./downloads -> /app/downloads
 ```
+
+The image defines a Docker healthcheck against `/api/status`, so `docker compose ps` reports whether the API, queue state, tool checks, and storage checks are reachable.
 
 ## Local Development
 
@@ -189,9 +193,9 @@ The Download tab queues a single media URL. Auto mode turns TikTok profile URLs 
 
 The Cookies tab reads and writes `data/cookies.txt`. Use Netscape cookie format exported from a logged-in browser session.
 
-### Tasks
+### Queue
 
-The Tasks tab polls queue state and job logs. It supports pause/resume, active job cancellation, retrying failed or cancelled jobs, deleting history entries, and clearing completed entries.
+The Queue tab polls queue state and job logs. It supports pause/resume, active job cancellation, retrying failed or cancelled jobs, deleting history entries, and clearing completed entries.
 
 On startup, any interrupted `downloading` jobs are recovered back to `pending` with a recovery log entry. Failed jobs retry with bounded exponential backoff unless the failure is classified as a validation/cancellation error.
 
@@ -224,6 +228,8 @@ On startup, any interrupted `downloading` jobs are recovered back to `pending` w
 - The queue currently runs in-process and processes one job at a time.
 - Job logs are kept in `download_job_logs` and the legacy `log_output` field is capped to avoid unbounded row growth.
 - A background monitor starts immediately on boot and repeats every six hours.
+- The main UI status overview reads `/api/status` and shows worker, monitor, downloader-tool, storage, and uptime state.
+- The Docker image healthcheck also reads `/api/status`.
 - The server serves `/media/*` directly from `DOWNLOADS_DIR`.
 - Production frontend files are served by the backend when `frontend/dist` exists.
 - This app currently has no authentication or authorization layer. Do not expose it directly to the public internet without putting it behind trusted access control.

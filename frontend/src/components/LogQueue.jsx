@@ -1,36 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { requestJson } from '../utils/api';
+import { formatDateTime, formatDurationBetween } from '../utils/format';
+import { readableUrl } from '../utils/media';
 
 const terminalStatuses = ['failed', 'completed', 'cancelled'];
 
-const formatDate = (isoString) => {
-  if (!isoString) return '';
-  return new Date(isoString).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'medium' });
-};
-
 const durationLabel = (job) => {
   const start = job.started_at || job.created_at;
-  const end = job.completed_at || new Date().toISOString();
-  if (!start) return 'Unknown';
-  const seconds = Math.max(0, Math.round((new Date(end) - new Date(start)) / 1000));
-  if (seconds < 60) return `${seconds}s`;
-  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
-};
-
-const readableUrl = (value) => {
-  try {
-    const url = new URL(value);
-    const host = url.hostname.replace(/^www\./, '');
-    const parts = url.pathname.split('/').filter(Boolean);
-    if (host === 'tiktok.com') {
-      const handle = parts.find((part) => part.startsWith('@'));
-      const videoIndex = parts.indexOf('video');
-      if (handle && videoIndex >= 0 && parts[videoIndex + 1]) return `${handle} / ${parts[videoIndex + 1]}`;
-      if (handle) return handle;
-    }
-    return `${host}${url.pathname === '/' ? '' : url.pathname}`.replace(/\/$/, '');
-  } catch {
-    return value;
-  }
+  return formatDurationBetween(start, job.completed_at, 'Unknown');
 };
 
 const jobStatusTone = (status) => {
@@ -73,7 +50,7 @@ function JobRow({ job, selected, onSelect, onAction }) {
         <span className="progress-bar-wrapper" aria-hidden="true">
           <span className="progress-bar-fill" style={{ width: `${progress}%` }} />
         </span>
-        {job.next_attempt_at && <span className="retry-note">Retry {formatDate(job.next_attempt_at)}</span>}
+        {job.next_attempt_at && <span className="retry-note">Retry {formatDateTime(job.next_attempt_at)}</span>}
       </button>
       <div className="job-actions">
         {canCancel && (
@@ -110,9 +87,7 @@ export default function LogQueue({ onQueueChanged }) {
 
   const fetchQueue = async () => {
     const params = new URLSearchParams({ status: statusFilter, type: typeFilter });
-    const res = await fetch(`/api/queue?${params}`);
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error?.message || 'Failed to load queue');
+    const data = await requestJson(`/api/queue?${params}`, {}, 'Failed to load queue');
     setActiveJobs(data.active || []);
     setHistoryJobs(data.history || []);
     setState(data.state || {});
@@ -124,15 +99,12 @@ export default function LogQueue({ onQueueChanged }) {
   };
 
   const fetchLogs = async (jobId) => {
-    const res = await fetch(`/api/queue/${jobId}/logs`);
-    const data = await res.json();
+    const data = await requestJson(`/api/queue/${jobId}/logs`, {}, 'Failed to load job logs');
     setJobLogs(data.logs || 'No log output yet.');
   };
 
   const runAction = async (path, method = 'POST') => {
-    const res = await fetch(path, { method });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error?.message || 'Queue action failed');
+    await requestJson(path, { method }, 'Queue action failed');
     setActionError('');
     await fetchQueue();
     onQueueChanged?.();

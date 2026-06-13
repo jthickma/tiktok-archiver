@@ -4,6 +4,9 @@ import ChannelManager from './components/ChannelManager';
 import DownloaderForm from './components/DownloaderForm';
 import CookieEditor from './components/CookieEditor';
 import LogQueue from './components/LogQueue';
+import SystemOverview from './components/SystemOverview';
+import { requestJson } from './utils/api';
+import { formatBytes } from './utils/format';
 
 const tabs = [
   { id: 'browser', label: 'Archive', icon: 'grid' },
@@ -22,18 +25,6 @@ function Icon({ name }) {
   return <svg {...common}><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /></svg>;
 }
 
-const formatBytes = (bytes) => {
-  if (!Number.isFinite(bytes)) return 'Unknown';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
-};
-
 export default function App() {
   const [activeTab, setActiveTab] = useState('browser');
   const [status, setStatus] = useState(null);
@@ -42,9 +33,7 @@ export default function App() {
   const fetchStatus = async () => {
     try {
       setStatusLoading(true);
-      const res = await fetch('/api/status');
-      if (!res.ok) throw new Error('Status request failed');
-      setStatus(await res.json());
+      setStatus(await requestJson('/api/status', {}, 'Status request failed'));
     } catch (error) {
       setStatus({ offline: true, error: error.message });
     } finally {
@@ -141,6 +130,8 @@ export default function App() {
             <span className="metric-label">Completed</span>
           </button>
         </section>
+
+        <SystemOverview status={status} />
 
         <section className="content-view">
           {renderContent()}
