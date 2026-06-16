@@ -3,15 +3,18 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { initDb, dbAll, dbGet } from './database.js';
+import { initDb } from './database.js';
 import {
   cancelJob,
   clearCompletedJobs,
   deleteJob,
   enqueue,
   getQueueState,
+  listQueueJobs,
   pauseQueue,
   processQueue,
+  readJobLogs,
+  readQueueSummary,
   recoverInterruptedJobs,
   resumeQueue,
   retryJob
@@ -56,29 +59,6 @@ const asyncRoute = (handler) => async (req, res) => {
     logger.error('api route failed', { path: req.path, method: req.method, error });
     if (!res.headersSent) sendError(res, error);
   }
-};
-
-const emptyQueueCounts = () => ({
-  pending: 0,
-  downloading: 0,
-  completed: 0,
-  failed: 0,
-  cancelled: 0
-});
-
-const readQueueSummary = async () => {
-  const rows = await dbAll('SELECT status, COUNT(*) as count FROM download_jobs GROUP BY status');
-  const counts = emptyQueueCounts();
-  for (const row of rows) {
-    counts[row.status] = row.count;
-  }
-
-  return {
-    counts,
-    activeCount: counts.pending + counts.downloading,
-    totalCount: Object.values(counts).reduce((total, count) => total + count, 0),
-    problemCount: counts.failed
-  };
 };
 
 const parseDownloadTarget = (input, downloader) => {
@@ -164,57 +144,11 @@ app.post('/api/download-url', asyncRoute(async (req, res) => {
 }));
 
 app.get('/api/queue', asyncRoute(async (req, res) => {
-  const { status, type } = parseQueueQuery(req.query);
-  const historyWhere = [];
-  const historyParams = [];
-  const activeWhere = ["status IN ('pending', 'downloading')"];
-  const activeParams = [];
-  if (status && ['pending', 'downloading'].includes(status)) {
-    activeWhere.splice(0, activeWhere.length, 'status = ?');
-    activeParams.push(status);
-  } else if (status) {
-    historyWhere.push('status = ?');
-    historyParams.push(status);
-  }
-  if (type) {
-    historyWhere.push('type = ?');
-    historyParams.push(type);
-    activeWhere.push('type = ?');
-    activeParams.push(type);
-  }
-  const historySuffix = historyWhere.length ? `WHERE ${historyWhere.join(' AND ')}` : '';
-  const active = await dbAll(
-    `SELECT id, url, type, status, progress, error_message, created_at, started_at, completed_at,
-            attempt_count, max_attempts, next_attempt_at, last_error_class
-     FROM download_jobs
-     WHERE ${activeWhere.join(' AND ')}
-     ORDER BY CASE status WHEN 'downloading' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END, id ASC`,
-    activeParams
-  );
-  const history = await dbAll(
-    `SELECT id, url, type, status, progress, error_message, created_at, started_at, completed_at,
-            attempt_count, max_attempts, next_attempt_at, last_error_class
-     FROM download_jobs ${historySuffix}
-     ${historySuffix ? 'AND' : 'WHERE'} status IN ('completed', 'failed', 'cancelled')
-     ORDER BY completed_at DESC, id DESC LIMIT 100`,
-    historyParams
-  );
-  res.json({ active, history, state: getQueueState(), summary: await readQueueSummary() });
+  res.json(await listQueueJobs(parseQueueQuery(req.query)));
 }));
 
 app.get('/api/queue/:id/logs', asyncRoute(async (req, res) => {
-  const id = parseId(req.params.id);
-  const job = await dbGet('SELECT log_output, error_message, status FROM download_jobs WHERE id = ?', [id]);
-  if (!job) throw new ApiError(404, 'NOT_FOUND', 'Job not found');
-  const rows = await dbAll(
-    'SELECT created_at, level, message FROM download_job_logs WHERE job_id = ? ORDER BY id DESC LIMIT 250',
-    [id]
-  );
-  res.json({
-    logs: rows.reverse().map((row) => `[${row.created_at}] ${row.message}`).join('\n') || job.log_output || '',
-    error: job.error_message,
-    status: job.status
-  });
+  res.json(await readJobLogs(parseId(req.params.id)));
 }));
 
 app.post('/api/queue/:id/cancel', asyncRoute(async (req, res) => {

@@ -182,6 +182,92 @@ export const getQueueState = () => ({
   activeJobIds: Array.from(activeProcesses.keys())
 });
 
+const emptyQueueCounts = () => ({
+  pending: 0,
+  downloading: 0,
+  completed: 0,
+  failed: 0,
+  cancelled: 0
+});
+
+export const readQueueSummary = async () => {
+  const rows = await dbAll('SELECT status, COUNT(*) as count FROM download_jobs GROUP BY status');
+  const counts = emptyQueueCounts();
+  for (const row of rows) {
+    counts[row.status] = row.count;
+  }
+
+  return {
+    counts,
+    activeCount: counts.pending + counts.downloading,
+    totalCount: Object.values(counts).reduce((total, count) => total + count, 0),
+    problemCount: counts.failed
+  };
+};
+
+export const listQueueJobs = async ({ status, type } = {}) => {
+  const historyWhere = [];
+  const historyParams = [];
+  const activeWhere = ["status IN ('pending', 'downloading')"];
+  const activeParams = [];
+
+  if (status && ['pending', 'downloading'].includes(status)) {
+    activeWhere.splice(0, activeWhere.length, 'status = ?');
+    activeParams.push(status);
+  } else if (status) {
+    historyWhere.push('status = ?');
+    historyParams.push(status);
+  }
+
+  if (type) {
+    historyWhere.push('type = ?');
+    historyParams.push(type);
+    activeWhere.push('type = ?');
+    activeParams.push(type);
+  }
+
+  const historySuffix = historyWhere.length ? `WHERE ${historyWhere.join(' AND ')}` : '';
+  const active = await dbAll(
+    `SELECT id, url, type, status, progress, error_message, created_at, started_at, completed_at,
+            attempt_count, max_attempts, next_attempt_at, last_error_class
+     FROM download_jobs
+     WHERE ${activeWhere.join(' AND ')}
+     ORDER BY CASE status WHEN 'downloading' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END, id ASC`,
+    activeParams
+  );
+  const history = await dbAll(
+    `SELECT id, url, type, status, progress, error_message, created_at, started_at, completed_at,
+            attempt_count, max_attempts, next_attempt_at, last_error_class
+     FROM download_jobs ${historySuffix}
+     ${historySuffix ? 'AND' : 'WHERE'} status IN ('completed', 'failed', 'cancelled')
+     ORDER BY completed_at DESC, id DESC LIMIT 100`,
+    historyParams
+  );
+
+  return {
+    active,
+    history,
+    state: getQueueState(),
+    summary: await readQueueSummary()
+  };
+};
+
+export const readJobLogs = async (jobId) => {
+  const job = await dbGet('SELECT log_output, error_message, status FROM download_jobs WHERE id = ?', [jobId]);
+  if (!job) throw new ApiError(404, 'NOT_FOUND', 'Job not found');
+
+  const rows = await dbAll(
+    'SELECT created_at, level, message FROM download_job_logs WHERE job_id = ? ORDER BY id DESC LIMIT 250',
+    [jobId]
+  );
+
+  return {
+    logs: rows.reverse().map((row) => `[${row.created_at}] ${row.message}`).join('\n') || job.log_output || '',
+    error: job.error_message,
+    status: job.status
+  };
+};
+
 export const cancelJob = async (jobId) => {
   const job = await dbGet('SELECT * FROM download_jobs WHERE id = ?', [jobId]);
   if (!job) throw new ApiError(404, 'NOT_FOUND', 'Job not found');
