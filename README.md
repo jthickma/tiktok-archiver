@@ -149,14 +149,16 @@ Downloaded media is stored by channel:
 ```text
 downloads/
 `-- @username/
-    |-- @username_1234567890.mp4
-    |-- @username_1234567890.image
-    `-- 1234567891/
-        |-- image_1.jpg
-        `-- image_2.jpg
+    |-- @username_2026-06-18_1234567890.mp4
+    |-- @username_2026-06-18_1234567890.jpg
+    `-- @username_1234567891/
+        |-- @username_1234567891_image_1.jpg
+        `-- @username_1234567891_image_2.jpg
 ```
 
-Video posts are stored as files. Slideshow posts are stored as folders named after the TikTok post ID.
+Video posts are stored as `@username_YYYY-MM-DD_postId.ext`. Slideshow folders and their files use the
+`@username_postId` prefix. The post ID remains in each name because it is TikTok's stable unique key;
+numeric TikTok profile IDs are never used as archive names.
 
 ## Web UI Usage
 

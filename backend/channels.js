@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { dbAll, dbGet, dbRun } from './database.js';
-import { normalizeProfileUrl, extractUsername } from './identity.js';
+import { normalizeProfileUrl, requireTikTokUsername } from './identity.js';
 import { logger } from './logger.js';
 
 export const createChannelRegistry = ({ channelsFile }) => {
@@ -24,7 +24,7 @@ export const createChannelRegistry = ({ channelsFile }) => {
     for (const line of lines) {
       try {
         const url = normalizeProfileUrl(line);
-        const id = extractUsername(url);
+        const id = requireTikTokUsername(url);
         fileChannelIds.push(id);
 
         const existing = await dbGet('SELECT * FROM channels WHERE id = ?', [id]);
@@ -67,7 +67,7 @@ export const createChannelRegistry = ({ channelsFile }) => {
 
   const monitorProfile = async (input) => {
     const url = normalizeProfileUrl(input);
-    const id = extractUsername(url);
+    const id = requireTikTokUsername(url);
     const existing = await dbGet('SELECT * FROM channels WHERE id = ?', [id]);
     if (existing) {
       await dbRun('UPDATE channels SET is_monitored = 1, url = ? WHERE id = ?', [url, id]);

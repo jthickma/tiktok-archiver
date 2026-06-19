@@ -73,7 +73,7 @@ Responsibilities:
 - Create `download_job_logs` and `schema_migrations`.
 - Add missing columns for existing installs.
 - Provide promise wrappers around `sqlite3` methods.
-- Run a startup healing pass that fixes known incorrect numeric channel mappings.
+- Run a startup healing pass that migrates numeric profile paths and ambiguous slideshow names to readable username-prefixed paths.
 
 Tables:
 
@@ -141,10 +141,10 @@ Responsibilities:
 Important behaviors:
 
 - Cookies are passed to download tools only when `data/cookies.txt` exists and is non-empty.
-- Video output is named `@username_postId.ext`.
-- Slideshow output is stored in a folder named after the post ID.
+- Video output is named `@username_YYYY-MM-DD_postId.ext`.
+- Slideshow output is stored under `@username_postId/` with `@username_postId_image_N.ext` files.
 - Duplicate posts are skipped based on `posts.id`.
-- Missing usernames fall back to `@unknown`.
+- TikTok downloads fail before creating files when a readable username cannot be determined.
 
 ### Queue Module
 

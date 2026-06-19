@@ -6,7 +6,8 @@ import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
 import { fileURLToPath } from 'url';
 import { dbRun, dbGet } from './database.js';
-import { extractUsername as extractNormalizedUsername, isTikTokUrl } from './identity.js';
+import { createVideoArchiveBase } from './archive-naming.js';
+import { extractUsername as extractNormalizedUsername, isTikTokUrl, requireTikTokUsername } from './identity.js';
 import { logger } from './logger.js';
 import { createVideoThumbnail } from './thumbnails.js';
 
@@ -140,7 +141,7 @@ const getExtensionFromUrl = (url, fallback = '.jpg') => {
 
 const sourceIdFromUrl = (url, metadata = {}) => {
   if (isTikTokUrl(url) || isTikTokUrl(metadata.webpage_url || '')) {
-    return extractUsername(url, metadata);
+    return requireTikTokUsername(url, metadata);
   }
   if (isVscoUrl(url)) {
     return getVscoUser(url) || getHostname(url);
@@ -598,14 +599,19 @@ export const downloadWithGalleryDl = async (url, onProgress, options, context = 
   const title = context.title || context.metadata?.title || `${getHostname(url)} media`;
   const description = context.description || context.metadata?.description || title;
   const sourceDir = safeSegment(channelId);
-  const itemDir = path.join(DOWNLOADS_DIR, sourceDir, safeSegment(postId));
+  const postPrefix = safeSegment(`${channelId}_${postId}`);
+  const itemDirName = channelId.startsWith('@') ? postPrefix : safeSegment(postId);
+  const itemDir = path.join(DOWNLOADS_DIR, sourceDir, itemDirName);
 
   fs.mkdirSync(itemDir, { recursive: true });
   onProgress(20, `Downloading media with gallery-dl${isVscoUrl(url) ? ' using VSCO settings' : ''}...`);
 
+  const filenameFormat = context.preferredType === 'slideshow' && channelId.startsWith('@')
+    ? `${postPrefix}_image_{num}.{extension}`
+    : (context.filenameFormat || GALLERY_DL_DEFAULT_FILENAME);
   const galleryArgs = [
     '--directory', itemDir,
-    '--filename', context.filenameFormat || GALLERY_DL_DEFAULT_FILENAME,
+    '--filename', filenameFormat,
     '--no-input'
   ];
 
@@ -661,7 +667,7 @@ export const downloadWithGalleryDl = async (url, onProgress, options, context = 
   const metadata = {
     ...(context.metadata || {}),
     downloader: context.metadata?.vsco_direct_gallery || context.metadata?.vsco_direct_media ? 'gallery-dl+vsco-direct-fallback' : 'gallery-dl',
-    gallery_dl_filename: context.filenameFormat || GALLERY_DL_DEFAULT_FILENAME,
+    gallery_dl_filename: filenameFormat,
     gallery_dl_tls12: isVscoUrl(url) ? true : undefined,
     vsco_user: isVscoUrl(url) ? getVscoUser(url) : undefined,
     vsco_media_id: isVscoUrl(url) ? getVscoMediaId(url) : undefined,
@@ -696,7 +702,11 @@ const downloadWithYtDlp = async (url, metadata, onProgress, options) => {
   const title = metadata.title || `${getHostname(url)} media`;
   const description = metadata.description || title;
   const channelDir = path.join(DOWNLOADS_DIR, safeSegment(channelId));
-  const outputBase = safeSegment(`${channelId}_${postId}`, hashValue(url));
+  const outputBase = createVideoArchiveBase({
+    creator: channelId,
+    uploadDate,
+    postId
+  });
 
   fs.mkdirSync(channelDir, { recursive: true });
   onProgress(20, 'Downloading media with yt-dlp...');
