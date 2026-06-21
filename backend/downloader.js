@@ -7,26 +7,41 @@ import { pipeline } from 'stream/promises';
 import { fileURLToPath } from 'url';
 import { dbRun, dbGet } from './database.js';
 import { createVideoArchiveBase } from './archive-naming.js';
-import { extractUsername as extractNormalizedUsername, isTikTokUrl, requireTikTokUsername } from './identity.js';
+import {
+  extractUsername as extractNormalizedUsername,
+  isTikTokUrl,
+  requireTikTokUsername,
+} from './identity.js';
 import { logger } from './logger.js';
 import { createVideoThumbnail } from './thumbnails.js';
+import {
+  isMediaFile,
+  isImageFile,
+  isVideoFile,
+  isAudioFile,
+  collectMediaFiles,
+  inferTypeFromFiles,
+  setMediaDates,
+  MEDIA_EXTENSIONS,
+  getExtensionFromUrl,
+  listFiles,
+} from './utils/media-files.js';
+import { toWebPath, safeSegment } from './utils/path-utils.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const DOWNLOADS_DIR = process.env.DOWNLOADS_DIR || path.join(__dirname, '../downloads');
+const DOWNLOADS_DIR =
+  process.env.DOWNLOADS_DIR || path.join(__dirname, '../downloads');
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '../data');
 const COOKIES_PATH = path.join(DATA_DIR, 'cookies.txt');
-
-const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.avif']);
-const VIDEO_EXTENSIONS = new Set(['.mp4', '.m4v', '.mov', '.webm', '.mkv']);
-const AUDIO_EXTENSIONS = new Set(['.mp3', '.m4a', '.wav', '.flac', '.ogg', '.opus']);
-const MEDIA_EXTENSIONS = new Set([...IMAGE_EXTENSIONS, ...VIDEO_EXTENSIONS, ...AUDIO_EXTENSIONS]);
-const VSCO_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:139.0) Gecko/20100101 Firefox/139.0';
+const VSCO_USER_AGENT =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:139.0) Gecko/20100101 Firefox/139.0';
 const VSCO_REQUEST_HEADERS = {
   'User-Agent': VSCO_USER_AGENT,
-  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/png,image/svg+xml,*/*;q=0.8',
+  Accept:
+    'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/png,image/svg+xml,*/*;q=0.8',
   'Accept-Language': 'en-US,en;q=0.9',
-  Referer: 'https://vsco.co/'
+  Referer: 'https://vsco.co/',
 };
 const GALLERY_DL_DEFAULT_FILENAME = '{id}.{extension}';
 const VSCO_FETCH_SCRIPT = String.raw`
@@ -82,21 +97,11 @@ const registerProcess = (proc, options = {}) => {
   }
 };
 
-const hasCookies = () => fs.existsSync(COOKIES_PATH) && fs.statSync(COOKIES_PATH).size > 0;
+const hasCookies = () =>
+  fs.existsSync(COOKIES_PATH) && fs.statSync(COOKIES_PATH).size > 0;
 
-const hashValue = (value) => crypto.createHash('sha256').update(String(value)).digest('hex').slice(0, 16);
-
-const safeSegment = (value, fallback = 'download') => {
-  const clean = String(value || '')
-    .trim()
-    .replace(/^https?:\/\//i, '')
-    .replace(/[^a-zA-Z0-9@._-]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-    .slice(0, 96);
-  return clean || fallback;
-};
-
-const toWebPath = (fullPath) => path.relative(DOWNLOADS_DIR, fullPath).split(path.sep).join('/');
+const hashValue = (value) =>
+  crypto.createHash('sha256').update(String(value)).digest('hex').slice(0, 16);
 
 const getHostname = (url) => {
   try {
@@ -110,7 +115,9 @@ const isVscoUrl = (url) => /(^|\.)vsco\.co$/i.test(getHostname(url));
 
 const getVscoUser = (url) => {
   try {
-    return new URL(url).pathname.split('/').filter(Boolean)[0]?.toLowerCase() || '';
+    return (
+      new URL(url).pathname.split('/').filter(Boolean)[0]?.toLowerCase() || ''
+    );
   } catch {
     return '';
   }
@@ -131,14 +138,6 @@ const getVscoGalleryUrl = (url) => {
   return user ? `https://vsco.co/${user}/gallery` : url;
 };
 
-const getExtensionFromUrl = (url, fallback = '.jpg') => {
-  try {
-    const ext = path.extname(new URL(url).pathname).toLowerCase();
-    if (MEDIA_EXTENSIONS.has(ext)) return ext;
-  } catch {}
-  return fallback;
-};
-
 const sourceIdFromUrl = (url, metadata = {}) => {
   if (isTikTokUrl(url) || isTikTokUrl(metadata.webpage_url || '')) {
     return requireTikTokUsername(url, metadata);
@@ -146,7 +145,13 @@ const sourceIdFromUrl = (url, metadata = {}) => {
   if (isVscoUrl(url)) {
     return getVscoUser(url) || getHostname(url);
   }
-  return safeSegment(metadata.uploader || metadata.channel || metadata.extractor_key || getHostname(url), 'source');
+  return safeSegment(
+    metadata.uploader ||
+      metadata.channel ||
+      metadata.extractor_key ||
+      getHostname(url),
+    'source',
+  );
 };
 
 const sourceUrlFromId = (channelId, url) => {
@@ -156,14 +161,20 @@ const sourceUrlFromId = (channelId, url) => {
 };
 
 const createPostId = (url, metadata = {}) => {
-  if ((isTikTokUrl(url) || isTikTokUrl(metadata.webpage_url || '')) && metadata.id) {
+  if (
+    (isTikTokUrl(url) || isTikTokUrl(metadata.webpage_url || '')) &&
+    metadata.id
+  ) {
     return String(metadata.id);
   }
   if (isVscoUrl(url)) {
     const mediaId = getVscoMediaId(url) || metadata.id;
     if (mediaId) return `vsco_${safeSegment(mediaId)}`.slice(0, 160);
   }
-  const extractor = safeSegment(metadata.extractor_key || getHostname(url), 'media');
+  const extractor = safeSegment(
+    metadata.extractor_key || getHostname(url),
+    'media',
+  );
   const id = safeSegment(metadata.id || hashValue(url), hashValue(url));
   return `${extractor}_${id}`.slice(0, 160);
 };
@@ -181,56 +192,28 @@ const uploadDateFromMetadata = (metadata = {}) => {
   return new Date().toISOString().slice(0, 10);
 };
 
-const listFiles = (rootDir) => {
-  if (!fs.existsSync(rootDir)) return [];
-  const entries = fs.readdirSync(rootDir, { withFileTypes: true });
-  return entries.flatMap((entry) => {
-    const fullPath = path.join(rootDir, entry.name);
-    if (entry.isDirectory() && entry.name === '.thumbnails') return [];
-    if (entry.isDirectory()) return listFiles(fullPath);
-    return [fullPath];
-  });
-};
-
-const isMediaFile = (filePath) => MEDIA_EXTENSIONS.has(path.extname(filePath).toLowerCase());
-const isImageFile = (filePath) => IMAGE_EXTENSIONS.has(path.extname(filePath).toLowerCase());
-const isVideoFile = (filePath) => VIDEO_EXTENSIONS.has(path.extname(filePath).toLowerCase());
-const isAudioFile = (filePath) => AUDIO_EXTENSIONS.has(path.extname(filePath).toLowerCase());
-
-const collectMediaFiles = (rootDir) => listFiles(rootDir)
-  .filter((filePath) => isMediaFile(filePath) && !filePath.endsWith('.part'))
-  .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-
-const inferTypeFromFiles = (files, preferredType = '') => {
-  if (preferredType === 'slideshow') return 'slideshow';
-  if (files.length > 1) return 'gallery';
-  const file = files[0] || '';
-  if (isVideoFile(file)) return 'video';
-  if (isImageFile(file)) return 'image';
-  if (isAudioFile(file)) return 'audio';
-  return preferredType || 'media';
-};
-
-const setMediaDates = (files, uploadDate) => {
-  const mTime = new Date(uploadDate);
-  if (Number.isNaN(mTime.getTime())) return;
-  for (const file of files) {
-    fs.utimesSync(file, mTime, mTime);
-  }
-};
-
 const ensureSourceChannel = async ({ channelId, url }) => {
-  const channelExists = await dbGet('SELECT id FROM channels WHERE id = ?', [channelId]);
+  const channelExists = await dbGet('SELECT id FROM channels WHERE id = ?', [
+    channelId,
+  ]);
   if (channelExists) return;
 
   await dbRun(
     'INSERT INTO channels (id, username, url, created_at, is_monitored) VALUES (?, ?, ?, ?, 0)',
-    [channelId, channelId.replace(/^@/, ''), sourceUrlFromId(channelId, url), new Date().toISOString()]
+    [
+      channelId,
+      channelId.replace(/^@/, ''),
+      sourceUrlFromId(channelId, url),
+      new Date().toISOString(),
+    ],
   );
 };
 
 const savePost = async (postData) => {
-  await ensureSourceChannel({ channelId: postData.channel_id, url: postData.url });
+  await ensureSourceChannel({
+    channelId: postData.channel_id,
+    url: postData.url,
+  });
 
   await dbRun(
     `INSERT OR REPLACE INTO posts
@@ -247,72 +230,99 @@ const savePost = async (postData) => {
       postData.file_path,
       postData.thumbnail_path,
       postData.downloaded_at,
-      postData.metadata_json
-    ]
+      postData.metadata_json,
+    ],
   );
 };
 
-const spawnTool = ({ command, args, label, postId, options, onStdout }) => new Promise((resolve, reject) => {
-  const proc = spawn(command, args);
-  registerProcess(proc, options);
-  let stderr = '';
+const spawnTool = ({ command, args, label, postId, options, onStdout }) =>
+  new Promise((resolve, reject) => {
+    const proc = spawn(command, args);
+    registerProcess(proc, options);
+    let stderr = '';
 
-  proc.stdout.on('data', (data) => {
-    const text = data.toString();
-    logger.info(`${label} stdout`, { post_id: postId, output: text.trim() });
-    onStdout?.(text);
+    proc.stdout.on('data', (data) => {
+      const text = data.toString();
+      logger.info(`${label} stdout`, { post_id: postId, output: text.trim() });
+      onStdout?.(text);
+    });
+
+    proc.stderr.on('data', (data) => {
+      const text = data.toString();
+      stderr += text;
+      logger.warn(`${label} stderr`, { post_id: postId, output: text.trim() });
+    });
+
+    proc.on('error', (error) => reject(error));
+
+    proc.on('close', (code, signal) => {
+      if (code !== 0) {
+        reject(
+          new Error(
+            stderr.trim() ||
+              `${label} failed${signal ? ` (${signal})` : ` (code ${code})`}`,
+          ),
+        );
+      } else {
+        resolve();
+      }
+    });
   });
 
-  proc.stderr.on('data', (data) => {
-    const text = data.toString();
-    stderr += text;
-    logger.warn(`${label} stderr`, { post_id: postId, output: text.trim() });
+const spawnCapture = ({ command, args, label, options, env = {} }) =>
+  new Promise((resolve, reject) => {
+    const proc = spawn(command, args, { env: { ...process.env, ...env } });
+    registerProcess(proc, options);
+    let stdout = '';
+    let stderr = '';
+
+    proc.stdout.on('data', (data) => {
+      stdout += data.toString();
+    });
+    proc.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
+
+    proc.on('error', (error) => reject(error));
+    proc.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(stderr.trim() || `${label} failed (code ${code})`));
+      } else {
+        resolve(stdout);
+      }
+    });
   });
 
-  proc.on('error', (error) => reject(error));
-
-  proc.on('close', (code, signal) => {
-    if (code !== 0) {
-      reject(new Error(stderr.trim() || `${label} failed${signal ? ` (${signal})` : ` (code ${code})`}`));
-    } else {
-      resolve();
-    }
-  });
-});
-
-const spawnCapture = ({ command, args, label, options, env = {} }) => new Promise((resolve, reject) => {
-  const proc = spawn(command, args, { env: { ...process.env, ...env } });
-  registerProcess(proc, options);
-  let stdout = '';
-  let stderr = '';
-
-  proc.stdout.on('data', (data) => { stdout += data.toString(); });
-  proc.stderr.on('data', (data) => { stderr += data.toString(); });
-
-  proc.on('error', (error) => reject(error));
-  proc.on('close', (code) => {
-    if (code !== 0) {
-      reject(new Error(stderr.trim() || `${label} failed (code ${code})`));
-    } else {
-      resolve(stdout);
-    }
-  });
-});
-
-const runVscoBrowserFetch = async ({ mode, url, referer, outputPath = '', options, accept, authorization }) => {
+const runVscoBrowserFetch = async ({
+  mode,
+  url,
+  referer,
+  outputPath = '',
+  options,
+  accept,
+  authorization,
+}) => {
   const args = ['-c', VSCO_FETCH_SCRIPT, mode, url, referer, outputPath];
   const env = {
     VSCO_USER_AGENT,
     ...(accept ? { VSCO_FETCH_ACCEPT: accept } : {}),
-    ...(authorization ? {
-      VSCO_AUTHORIZATION: authorization,
-      VSCO_CLIENT_PLATFORM: 'web',
-      VSCO_CLIENT_BUILD: '1'
-    } : {})
+    ...(authorization
+      ? {
+          VSCO_AUTHORIZATION: authorization,
+          VSCO_CLIENT_PLATFORM: 'web',
+          VSCO_CLIENT_BUILD: '1',
+        }
+      : {}),
   };
 
   try {
-    return await spawnCapture({ command: 'python3', args, label: 'VSCO browser fetch', options, env });
+    return await spawnCapture({
+      command: 'python3',
+      args,
+      label: 'VSCO browser fetch',
+      options,
+      env,
+    });
   } catch (error) {
     if (!/curl_cffi|No module named/i.test(error.message)) throw error;
     return spawnCapture({
@@ -320,15 +330,21 @@ const runVscoBrowserFetch = async ({ mode, url, referer, outputPath = '', option
       args: ['run', '--with', 'curl-cffi', 'python', ...args],
       label: 'VSCO browser fetch via uv',
       options,
-      env
+      env,
     });
   }
 };
 
 const normalizeVscoMediaUrl = (media = {}) => {
-  if ((media.isVideo || media.is_video) && (media.videoUrl || media.video_url)) return String(media.videoUrl || media.video_url);
-  if (media.playbackUrl || media.playback_url) return String(media.playbackUrl || media.playback_url);
-  const rawUrl = media.responsiveUrl || media.responsive_url || media.posterUrl || media.poster_url;
+  if ((media.isVideo || media.is_video) && (media.videoUrl || media.video_url))
+    return String(media.videoUrl || media.video_url);
+  if (media.playbackUrl || media.playback_url)
+    return String(media.playbackUrl || media.playback_url);
+  const rawUrl =
+    media.responsiveUrl ||
+    media.responsive_url ||
+    media.posterUrl ||
+    media.poster_url;
   if (!rawUrl) return '';
   if (rawUrl.startsWith('http')) return rawUrl;
   const base = rawUrl.replace(/^\/\//, '');
@@ -353,7 +369,10 @@ const extractVscoPreloadedState = (html) => {
 };
 
 const fetchVscoPage = async (url, options = {}) => {
-  const res = await fetch(url, { headers: VSCO_REQUEST_HEADERS, redirect: 'follow' });
+  const res = await fetch(url, {
+    headers: VSCO_REQUEST_HEADERS,
+    redirect: 'follow',
+  });
   const html = await res.text();
   if (res.ok && html.includes('__PRELOADED_STATE__')) return html;
 
@@ -363,23 +382,35 @@ const fetchVscoPage = async (url, options = {}) => {
       url,
       referer: `https://vsco.co/${getVscoUser(url) || ''}`,
       options,
-      accept: VSCO_REQUEST_HEADERS.Accept
+      accept: VSCO_REQUEST_HEADERS.Accept,
     });
   } catch (error) {
-    const reason = res.ok ? 'missing preload state' : `${res.status} ${res.statusText}`;
-    throw new Error(`VSCO page request failed (${reason}); browser fallback failed: ${error.message}`);
+    const reason = res.ok
+      ? 'missing preload state'
+      : `${res.status} ${res.statusText}`;
+    throw new Error(
+      `VSCO page request failed (${reason}); browser fallback failed: ${error.message}`,
+    );
   }
 };
 
-const downloadVscoAsset = async ({ mediaUrl, filePath, referer, isVideo, options }) => {
-  const accept = isVideo ? 'video/mp4,video/*;q=0.9,*/*;q=0.8' : 'image/avif,image/webp,image/png,image/jpeg,image/*;q=0.9,*/*;q=0.8';
+const downloadVscoAsset = async ({
+  mediaUrl,
+  filePath,
+  referer,
+  isVideo,
+  options,
+}) => {
+  const accept = isVideo
+    ? 'video/mp4,video/*;q=0.9,*/*;q=0.8'
+    : 'image/avif,image/webp,image/png,image/jpeg,image/*;q=0.9,*/*;q=0.8';
   const res = await fetch(mediaUrl, {
     headers: {
       ...VSCO_REQUEST_HEADERS,
       Accept: accept,
-      Referer: referer
+      Referer: referer,
     },
-    redirect: 'follow'
+    redirect: 'follow',
   });
 
   if (res.ok && res.body) {
@@ -393,7 +424,7 @@ const downloadVscoAsset = async ({ mediaUrl, filePath, referer, isVideo, options
     referer,
     outputPath: filePath,
     options,
-    accept
+    accept,
   });
 };
 
@@ -405,15 +436,25 @@ const downloadVscoDirect = async ({ url, itemDir, postId, options }) => {
   if (!media) throw new Error('VSCO page did not include media metadata');
 
   const mediaUrl = normalizeVscoMediaUrl(media);
-  if (!mediaUrl) throw new Error('VSCO media metadata did not include a downloadable URL');
+  if (!mediaUrl)
+    throw new Error('VSCO media metadata did not include a downloadable URL');
 
   const isVideo = Boolean(media.isVideo || media.videoUrl || media.playbackUrl);
   const extension = getExtensionFromUrl(mediaUrl, isVideo ? '.mp4' : '.jpg');
-  const filePath = path.join(itemDir, `${safeSegment(media.id || postId)}${extension}`);
-  await downloadVscoAsset({ mediaUrl, filePath, referer: url, isVideo, options });
+  const filePath = path.join(
+    itemDir,
+    `${safeSegment(media.id || postId)}${extension}`,
+  );
+  await downloadVscoAsset({
+    mediaUrl,
+    filePath,
+    referer: url,
+    isVideo,
+    options,
+  });
   return {
     media,
-    filePath
+    filePath,
   };
 };
 
@@ -426,17 +467,24 @@ const unwrapVscoMedia = (item = {}) => {
 };
 
 const getVscoMediaUploadDate = (media = {}) => {
-  const raw = media.uploadDate || media.upload_date || media.createdDate || media.created_date || media.captureDate || media.capture_date;
+  const raw =
+    media.uploadDate ||
+    media.upload_date ||
+    media.createdDate ||
+    media.created_date ||
+    media.captureDate ||
+    media.capture_date;
   if (!raw) return '';
   const date = new Date(Number(raw));
   return Number.isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 10);
 };
 
-const getVscoPreloadedMedia = (state = {}) => [
-  ...Object.values(state?.medias?.byId || {}).map(unwrapVscoMedia),
-  ...Object.values(state?.entities?.images || {}),
-  ...Object.values(state?.entities?.videos || {})
-].filter((media) => media && normalizeVscoMediaUrl(media));
+const getVscoPreloadedMedia = (state = {}) =>
+  [
+    ...Object.values(state?.medias?.byId || {}).map(unwrapVscoMedia),
+    ...Object.values(state?.entities?.images || {}),
+    ...Object.values(state?.entities?.videos || {}),
+  ].filter((media) => media && normalizeVscoMediaUrl(media));
 
 const uniqueVscoMedia = (items) => {
   const seen = new Set();
@@ -448,19 +496,29 @@ const uniqueVscoMedia = (items) => {
   });
 };
 
-const fetchVscoGalleryApiPage = async ({ apiUrl, galleryUrl, token, options }) => {
+const fetchVscoGalleryApiPage = async ({
+  apiUrl,
+  galleryUrl,
+  token,
+  options,
+}) => {
   const text = await runVscoBrowserFetch({
     mode: 'json',
     url: apiUrl,
     referer: galleryUrl,
     options,
     accept: 'application/json',
-    authorization: `Bearer ${token}`
+    authorization: `Bearer ${token}`,
   });
   return JSON.parse(text);
 };
 
-const downloadVscoGalleryDirect = async ({ url, itemDir, options, onProgress }) => {
+const downloadVscoGalleryDirect = async ({
+  url,
+  itemDir,
+  options,
+  onProgress,
+}) => {
   const galleryUrl = getVscoGalleryUrl(url);
   const user = getVscoUser(url);
   const html = await fetchVscoPage(galleryUrl, options);
@@ -473,22 +531,41 @@ const downloadVscoGalleryDirect = async ({ url, itemDir, options, onProgress }) 
   if (token && siteId) {
     let cursor = '';
     let page = 0;
-    const maxPages = Number.parseInt(process.env.VSCO_DIRECT_GALLERY_MAX_PAGES || '250', 10);
+    const maxPages = Number.parseInt(
+      process.env.VSCO_DIRECT_GALLERY_MAX_PAGES || '250',
+      10,
+    );
 
     try {
       do {
-        const params = new URLSearchParams({ site_id: String(siteId), limit: '30' });
+        const params = new URLSearchParams({
+          site_id: String(siteId),
+          limit: '30',
+        });
         if (cursor) params.set('cursor', cursor);
         const apiUrl = `https://vsco.co/api/3.0/medias/profile?${params.toString()}`;
-        const data = await fetchVscoGalleryApiPage({ apiUrl, galleryUrl, token, options });
-        const pageMedia = (data.media || data.medias || []).map(unwrapVscoMedia);
+        const data = await fetchVscoGalleryApiPage({
+          apiUrl,
+          galleryUrl,
+          token,
+          options,
+        });
+        const pageMedia = (data.media || data.medias || []).map(
+          unwrapVscoMedia,
+        );
         mediaItems = mediaItems.concat(pageMedia);
         cursor = data.next_cursor || '';
         page += 1;
-        onProgress?.(35, `Fetched VSCO gallery page ${page} with ${pageMedia.length} items...`);
+        onProgress?.(
+          35,
+          `Fetched VSCO gallery page ${page} with ${pageMedia.length} items...`,
+        );
       } while (cursor && page < maxPages);
     } catch (error) {
-      logger.warn('VSCO gallery API fallback failed; using preloaded gallery media', { url, error });
+      logger.warn(
+        'VSCO gallery API fallback failed; using preloaded gallery media',
+        { url, error },
+      );
     }
   }
 
@@ -502,19 +579,35 @@ const downloadVscoGalleryDirect = async ({ url, itemDir, options, onProgress }) 
     const mediaUrl = normalizeVscoMediaUrl(media);
     if (!mediaUrl) continue;
     const mediaId = safeSegment(media.id || media._id || hashValue(mediaUrl));
-    const isVideo = Boolean(media.isVideo || media.is_video || media.videoUrl || media.video_url || media.playbackUrl || media.playback_url);
+    const isVideo = Boolean(
+      media.isVideo ||
+      media.is_video ||
+      media.videoUrl ||
+      media.video_url ||
+      media.playbackUrl ||
+      media.playback_url,
+    );
     const extension = getExtensionFromUrl(mediaUrl, isVideo ? '.mp4' : '.jpg');
     const filePath = path.join(itemDir, `${mediaId}${extension}`);
-    await downloadVscoAsset({ mediaUrl, filePath, referer: galleryUrl, isVideo, options });
+    await downloadVscoAsset({
+      mediaUrl,
+      filePath,
+      referer: galleryUrl,
+      isVideo,
+      options,
+    });
     downloaded += 1;
-    onProgress?.(35 + Math.min(40, Math.round((downloaded / mediaItems.length) * 40)), `Downloaded ${downloaded}/${mediaItems.length} VSCO gallery items...`);
+    onProgress?.(
+      35 + Math.min(40, Math.round((downloaded / mediaItems.length) * 40)),
+      `Downloaded ${downloaded}/${mediaItems.length} VSCO gallery items...`,
+    );
   }
 
   return {
     mediaCount: mediaItems.length,
     downloaded,
     firstUploadDate: getVscoMediaUploadDate(mediaItems[0]),
-    site
+    site,
   };
 };
 
@@ -530,12 +623,20 @@ export const getMetadata = (url, options = {}) => {
     let stdout = '';
     let stderr = '';
 
-    proc.stdout.on('data', (data) => { stdout += data.toString(); });
-    proc.stderr.on('data', (data) => { stderr += data.toString(); });
+    proc.stdout.on('data', (data) => {
+      stdout += data.toString();
+    });
+    proc.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
 
     proc.on('close', (code) => {
       if (code !== 0) {
-        reject(new Error(stderr.trim() || `yt-dlp failed to get metadata (code ${code})`));
+        reject(
+          new Error(
+            stderr.trim() || `yt-dlp failed to get metadata (code ${code})`,
+          ),
+        );
       } else {
         try {
           resolve(JSON.parse(stdout));
@@ -559,26 +660,50 @@ export const scanProfile = (profileUrl, options = {}) => {
     let stdout = '';
     let stderr = '';
 
-    proc.stdout.on('data', (data) => { stdout += data.toString(); });
-    proc.stderr.on('data', (data) => { stderr += data.toString(); });
+    proc.stdout.on('data', (data) => {
+      stdout += data.toString();
+    });
+    proc.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
 
     proc.on('close', (code) => {
       if (code !== 0) {
-        reject(new Error(stderr.trim() || `yt-dlp profile scan failed (code ${code})`));
+        reject(
+          new Error(
+            stderr.trim() || `yt-dlp profile scan failed (code ${code})`,
+          ),
+        );
       } else {
         try {
-          const lines = stdout.trim().split('\n').filter((line) => line.trim() !== '');
+          const lines = stdout
+            .trim()
+            .split('\n')
+            .filter((line) => line.trim() !== '');
           const entries = lines.map((line) => JSON.parse(line));
           resolve(entries);
         } catch (e) {
-          reject(new Error(`Failed to parse profile scan output: ${e.message}`));
+          reject(
+            new Error(`Failed to parse profile scan output: ${e.message}`),
+          );
         }
       }
     });
   });
 };
 
-const buildPostData = ({ id, channelId, type, title, description, url, uploadDate, filePath, thumbnailPath, metadata }) => ({
+const buildPostData = ({
+  id,
+  channelId,
+  type,
+  title,
+  description,
+  url,
+  uploadDate,
+  filePath,
+  thumbnailPath,
+  metadata,
+}) => ({
   id,
   channel_id: channelId,
   type,
@@ -589,39 +714,60 @@ const buildPostData = ({ id, channelId, type, title, description, url, uploadDat
   file_path: filePath,
   thumbnail_path: thumbnailPath,
   downloaded_at: new Date().toISOString(),
-  metadata_json: JSON.stringify(metadata)
+  metadata_json: JSON.stringify(metadata),
 });
 
-export const downloadWithGalleryDl = async (url, onProgress, options, context = {}) => {
+export const downloadWithGalleryDl = async (
+  url,
+  onProgress,
+  options,
+  context = {},
+) => {
   const postId = context.postId || createPostId(url, context.metadata);
   const channelId = context.channelId || sourceIdFromUrl(url, context.metadata);
-  const uploadDate = context.uploadDate || uploadDateFromMetadata(context.metadata);
-  const title = context.title || context.metadata?.title || `${getHostname(url)} media`;
-  const description = context.description || context.metadata?.description || title;
+  const uploadDate =
+    context.uploadDate || uploadDateFromMetadata(context.metadata);
+  const title =
+    context.title || context.metadata?.title || `${getHostname(url)} media`;
+  const description =
+    context.description || context.metadata?.description || title;
   const sourceDir = safeSegment(channelId);
   const postPrefix = safeSegment(`${channelId}_${postId}`);
-  const itemDirName = channelId.startsWith('@') ? postPrefix : safeSegment(postId);
+  const itemDirName = channelId.startsWith('@')
+    ? postPrefix
+    : safeSegment(postId);
   const itemDir = path.join(DOWNLOADS_DIR, sourceDir, itemDirName);
 
   fs.mkdirSync(itemDir, { recursive: true });
-  onProgress(20, `Downloading media with gallery-dl${isVscoUrl(url) ? ' using VSCO settings' : ''}...`);
+  onProgress(
+    20,
+    `Downloading media with gallery-dl${isVscoUrl(url) ? ' using VSCO settings' : ''}...`,
+  );
 
-  const filenameFormat = context.preferredType === 'slideshow' && channelId.startsWith('@')
-    ? `${postPrefix}_image_{num}.{extension}`
-    : (context.filenameFormat || GALLERY_DL_DEFAULT_FILENAME);
+  const filenameFormat =
+    context.preferredType === 'slideshow' && channelId.startsWith('@')
+      ? `${postPrefix}_image_{num}.{extension}`
+      : context.filenameFormat || GALLERY_DL_DEFAULT_FILENAME;
   const galleryArgs = [
-    '--directory', itemDir,
-    '--filename', filenameFormat,
-    '--no-input'
+    '--directory',
+    itemDir,
+    '--filename',
+    filenameFormat,
+    '--no-input',
   ];
 
   if (isVscoUrl(url)) {
     galleryArgs.push(
-      '-o', 'extractor.vsco.browser=firefox',
-      '-o', `extractor.vsco.headers.User-Agent=${VSCO_USER_AGENT}`,
-      '-o', `extractor.vsco.headers.Accept=${VSCO_REQUEST_HEADERS.Accept}`,
-      '-o', `extractor.vsco.headers.Accept-Language=${VSCO_REQUEST_HEADERS['Accept-Language']}`,
-      '-o', `extractor.vsco.headers.Referer=https://vsco.co/${getVscoUser(url) || ''}`
+      '-o',
+      'extractor.vsco.browser=firefox',
+      '-o',
+      `extractor.vsco.headers.User-Agent=${VSCO_USER_AGENT}`,
+      '-o',
+      `extractor.vsco.headers.Accept=${VSCO_REQUEST_HEADERS.Accept}`,
+      '-o',
+      `extractor.vsco.headers.Accept-Language=${VSCO_REQUEST_HEADERS['Accept-Language']}`,
+      '-o',
+      `extractor.vsco.headers.Referer=https://vsco.co/${getVscoUser(url) || ''}`,
     );
   }
   if (hasCookies()) {
@@ -631,19 +777,47 @@ export const downloadWithGalleryDl = async (url, onProgress, options, context = 
 
   let toolError = null;
   try {
-    await spawnTool({ command: 'gallery-dl', args: galleryArgs, label: 'gallery-dl', postId, options });
+    await spawnTool({
+      command: 'gallery-dl',
+      args: galleryArgs,
+      label: 'gallery-dl',
+      postId,
+      options,
+    });
   } catch (error) {
     toolError = error;
     if (isVscoUrl(url)) {
-      logger.warn('gallery-dl VSCO download failed; trying direct fallback', { post_id: postId, error });
-      onProgress(35, 'gallery-dl was blocked by VSCO. Trying VSCO direct fallback...');
+      logger.warn('gallery-dl VSCO download failed; trying direct fallback', {
+        post_id: postId,
+        error,
+      });
+      onProgress(
+        35,
+        'gallery-dl was blocked by VSCO. Trying VSCO direct fallback...',
+      );
       try {
         if (isVscoMediaUrl(url)) {
-          const fallback = await downloadVscoDirect({ url, itemDir, postId, options });
-          context.metadata = { ...(context.metadata || {}), vsco_direct_media: fallback.media };
+          const fallback = await downloadVscoDirect({
+            url,
+            itemDir,
+            postId,
+            options,
+          });
+          context.metadata = {
+            ...(context.metadata || {}),
+            vsco_direct_media: fallback.media,
+          };
         } else {
-          const fallback = await downloadVscoGalleryDirect({ url, itemDir, options, onProgress });
-          context.metadata = { ...(context.metadata || {}), vsco_direct_gallery: fallback };
+          const fallback = await downloadVscoGalleryDirect({
+            url,
+            itemDir,
+            options,
+            onProgress,
+          });
+          context.metadata = {
+            ...(context.metadata || {}),
+            vsco_direct_gallery: fallback,
+          };
         }
         toolError = null;
       } catch (fallbackError) {
@@ -654,25 +828,36 @@ export const downloadWithGalleryDl = async (url, onProgress, options, context = 
 
   const files = collectMediaFiles(itemDir);
   if (files.length === 0) {
-    throw new Error(`gallery-dl failed to download any supported media. Error: ${toolError?.message || 'No media files found'}`);
+    throw new Error(
+      `gallery-dl failed to download any supported media. Error: ${toolError?.message || 'No media files found'}`,
+    );
   }
 
   onProgress(80, 'Preserving file dates...');
   setMediaDates(files, uploadDate);
 
   const type = inferTypeFromFiles(files, context.preferredType);
-  const finalFilePath = files.length === 1 ? toWebPath(files[0]) : toWebPath(itemDir);
+  const finalFilePath =
+    files.length === 1
+      ? toWebPath(DOWNLOADS_DIR, files[0])
+      : toWebPath(DOWNLOADS_DIR, itemDir);
   const firstImage = files.find(isImageFile);
-  const finalThumbnailPath = firstImage ? toWebPath(firstImage) : '';
+  const finalThumbnailPath = firstImage
+    ? toWebPath(DOWNLOADS_DIR, firstImage)
+    : '';
   const metadata = {
     ...(context.metadata || {}),
-    downloader: context.metadata?.vsco_direct_gallery || context.metadata?.vsco_direct_media ? 'gallery-dl+vsco-direct-fallback' : 'gallery-dl',
+    downloader:
+      context.metadata?.vsco_direct_gallery ||
+      context.metadata?.vsco_direct_media
+        ? 'gallery-dl+vsco-direct-fallback'
+        : 'gallery-dl',
     gallery_dl_filename: filenameFormat,
     gallery_dl_tls12: isVscoUrl(url) ? true : undefined,
     vsco_user: isVscoUrl(url) ? getVscoUser(url) : undefined,
     vsco_media_id: isVscoUrl(url) ? getVscoMediaId(url) : undefined,
     yt_dlp_error: context.ytDlpError,
-    media_files: files.map(toWebPath)
+    media_files: files.map((f) => toWebPath(DOWNLOADS_DIR, f)),
   };
 
   onProgress(90, 'Saving media metadata to database...');
@@ -686,11 +871,15 @@ export const downloadWithGalleryDl = async (url, onProgress, options, context = 
     uploadDate,
     filePath: finalFilePath,
     thumbnailPath: finalThumbnailPath,
-    metadata
+    metadata,
   });
   await savePost(postData);
 
-  logger.info('gallery downloader completed', { post_id: postId, channel_id: channelId, files: files.length });
+  logger.info('gallery downloader completed', {
+    post_id: postId,
+    channel_id: channelId,
+    files: files.length,
+  });
   onProgress(100, 'Success');
   return postData;
 };
@@ -705,7 +894,7 @@ const downloadWithYtDlp = async (url, metadata, onProgress, options) => {
   const outputBase = createVideoArchiveBase({
     creator: channelId,
     uploadDate,
-    postId
+    postId,
   });
 
   fs.mkdirSync(channelDir, { recursive: true });
@@ -713,12 +902,15 @@ const downloadWithYtDlp = async (url, metadata, onProgress, options) => {
 
   const outTemplate = path.join(channelDir, `${outputBase}.%(ext)s`);
   const ytArgs = [
-    '--format', 'bestvideo+bestaudio/best',
-    '--merge-output-format', 'mp4',
+    '--format',
+    'bestvideo+bestaudio/best',
+    '--merge-output-format',
+    'mp4',
     '--write-thumbnail',
     '--no-playlist',
     '--no-warnings',
-    '-o', outTemplate
+    '-o',
+    outTemplate,
   ];
 
   if (hasCookies()) {
@@ -736,18 +928,25 @@ const downloadWithYtDlp = async (url, metadata, onProgress, options) => {
       const match = text.match(/(\d+(?:\.\d+)?)%/);
       if (match) {
         const percent = parseFloat(match[1]);
-        const jobProgress = Math.round(20 + (percent * 0.6));
+        const jobProgress = Math.round(20 + percent * 0.6);
         onProgress(jobProgress, `Downloading media: ${percent}%`);
       }
-    }
+    },
   });
 
   onProgress(80, 'Preserving file dates...');
-  const files = collectMediaFiles(channelDir).filter((file) => path.basename(file).startsWith(outputBase));
-  const primaryFile = files.find(isVideoFile) || files.find(isImageFile) || files.find(isAudioFile);
+  const files = collectMediaFiles(channelDir).filter((file) =>
+    path.basename(file).startsWith(outputBase),
+  );
+  const primaryFile =
+    files.find(isVideoFile) ||
+    files.find(isImageFile) ||
+    files.find(isAudioFile);
 
   if (!primaryFile) {
-    throw new Error(`yt-dlp completed but no supported output media was found under: ${outputBase}`);
+    throw new Error(
+      `yt-dlp completed but no supported output media was found under: ${outputBase}`,
+    );
   }
 
   setMediaDates(files, uploadDate);
@@ -756,9 +955,15 @@ const downloadWithYtDlp = async (url, metadata, onProgress, options) => {
   let generatedThumbnail = '';
   if (!firstImage && isVideoFile(primaryFile)) {
     try {
-      generatedThumbnail = await createVideoThumbnail(primaryFile, DOWNLOADS_DIR);
+      generatedThumbnail = await createVideoThumbnail(
+        primaryFile,
+        DOWNLOADS_DIR,
+      );
     } catch (error) {
-      logger.warn('video thumbnail generation failed during download', { post_id: postId, error });
+      logger.warn('video thumbnail generation failed during download', {
+        post_id: postId,
+        error,
+      });
     }
   }
   const postData = buildPostData({
@@ -769,30 +974,46 @@ const downloadWithYtDlp = async (url, metadata, onProgress, options) => {
     description,
     url,
     uploadDate,
-    filePath: toWebPath(primaryFile),
-    thumbnailPath: firstImage && firstImage !== primaryFile ? toWebPath(firstImage) : (isImageFile(primaryFile) ? toWebPath(primaryFile) : generatedThumbnail),
+    filePath: toWebPath(DOWNLOADS_DIR, primaryFile),
+    thumbnailPath:
+      firstImage && firstImage !== primaryFile
+        ? toWebPath(DOWNLOADS_DIR, firstImage)
+        : isImageFile(primaryFile)
+          ? toWebPath(DOWNLOADS_DIR, primaryFile)
+          : generatedThumbnail,
     metadata: {
       ...metadata,
       downloader: 'yt-dlp',
-      media_files: files.map(toWebPath)
-    }
+      media_files: files.map((f) => toWebPath(DOWNLOADS_DIR, f)),
+    },
   });
 
   onProgress(90, 'Saving media metadata to database...');
   await savePost(postData);
 
-  logger.info('yt-dlp downloader completed', { post_id: postId, channel_id: channelId });
+  logger.info('yt-dlp downloader completed', {
+    post_id: postId,
+    channel_id: channelId,
+  });
   onProgress(100, 'Success');
   return postData;
 };
 
 // Main download handler for a specific URL
-export const downloadPost = async (url, onProgress = () => {}, options = {}) => {
+export const downloadPost = async (
+  url,
+  onProgress = () => {},
+  options = {},
+) => {
   logger.info('downloader started', { url });
 
-  const duplicateByUrl = await dbGet('SELECT * FROM posts WHERE url = ?', [url]);
+  const duplicateByUrl = await dbGet('SELECT * FROM posts WHERE url = ?', [
+    url,
+  ]);
   if (duplicateByUrl) {
-    logger.info('downloader skipped duplicate URL', { post_id: duplicateByUrl.id });
+    logger.info('downloader skipped duplicate URL', {
+      post_id: duplicateByUrl.id,
+    });
     onProgress(100, 'Duplicate skipped.');
     return duplicateByUrl;
   }
@@ -806,9 +1027,14 @@ export const downloadPost = async (url, onProgress = () => {}, options = {}) => 
   try {
     metadata = await getMetadata(url, options);
   } catch (error) {
-    logger.warn('yt-dlp metadata failed; falling back to gallery-dl', { url, error });
+    logger.warn('yt-dlp metadata failed; falling back to gallery-dl', {
+      url,
+      error,
+    });
     onProgress(15, 'yt-dlp could not extract this URL. Trying gallery-dl...');
-    return downloadWithGalleryDl(url, onProgress, options, { ytDlpError: error.message });
+    return downloadWithGalleryDl(url, onProgress, options, {
+      ytDlpError: error.message,
+    });
   }
 
   const postId = createPostId(url, metadata);
@@ -819,8 +1045,10 @@ export const downloadPost = async (url, onProgress = () => {}, options = {}) => 
     return duplicate;
   }
 
-  const isSlideshow = (metadata.webpage_url && metadata.webpage_url.includes('/photo/')) ||
-                      (metadata.vcodec === 'none' && (!metadata.formats || metadata.formats.length <= 1));
+  const isSlideshow =
+    (metadata.webpage_url && metadata.webpage_url.includes('/photo/')) ||
+    (metadata.vcodec === 'none' &&
+      (!metadata.formats || metadata.formats.length <= 1));
 
   if (isSlideshow) {
     return downloadWithGalleryDl(url, onProgress, options, {
@@ -831,7 +1059,7 @@ export const downloadPost = async (url, onProgress = () => {}, options = {}) => 
       filenameFormat: 'image_{num}.{extension}',
       uploadDate: uploadDateFromMetadata(metadata),
       title: metadata.title || '',
-      description: metadata.description || metadata.title || ''
+      description: metadata.description || metadata.title || '',
     });
   }
 
@@ -839,7 +1067,10 @@ export const downloadPost = async (url, onProgress = () => {}, options = {}) => 
     return await downloadWithYtDlp(url, metadata, onProgress, options);
   } catch (error) {
     if (isTikTokUrl(url)) throw error;
-    logger.warn('yt-dlp download failed; falling back to gallery-dl', { url, error });
+    logger.warn('yt-dlp download failed; falling back to gallery-dl', {
+      url,
+      error,
+    });
     onProgress(20, 'yt-dlp download failed. Trying gallery-dl...');
     return downloadWithGalleryDl(url, onProgress, options, {
       metadata,
@@ -848,7 +1079,7 @@ export const downloadPost = async (url, onProgress = () => {}, options = {}) => 
       uploadDate: uploadDateFromMetadata(metadata),
       title: metadata.title || '',
       description: metadata.description || metadata.title || '',
-      ytDlpError: error.message
+      ytDlpError: error.message,
     });
   }
 };

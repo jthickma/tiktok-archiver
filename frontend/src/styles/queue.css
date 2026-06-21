@@ -1,0 +1,264 @@
+.queue-console {
+  display: grid;
+  gap: 12px;
+}
+
+.queue-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.queue-summary-chip {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--muted);
+  text-transform: capitalize;
+}
+
+.queue-summary-chip strong {
+  color: var(--text);
+  font-size: 22px;
+  line-height: 1;
+}
+
+.queue-summary-chip.ok strong {
+  color: var(--ok);
+}
+.queue-summary-chip.info strong {
+  color: var(--info);
+}
+.queue-summary-chip.danger strong {
+  color: var(--danger);
+}
+
+.queue-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+}
+
+.queue-layout.with-console {
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 0.85fr);
+}
+
+.queue-stack {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+.queue-section {
+  min-width: 0;
+}
+
+.queue-section-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.queue-section-header h2 {
+  margin: 0;
+  font-size: 14px;
+  letter-spacing: 0;
+}
+.queue-section-header span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.queue-list {
+  display: grid;
+  gap: 6px;
+}
+
+.job-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.job-item.active-selection {
+  border-color: var(--accent);
+}
+
+.job-main {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.job-title-row,
+.job-subline {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.job-title-row {
+  justify-content: space-between;
+}
+
+.job-subline {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.job-url {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.retry-note {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.job-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+}
+
+.job-actions .icon-btn {
+  min-height: 32px;
+  padding: 6px 9px;
+  font-size: 12px;
+}
+
+.job-type-badge,
+.job-status-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.job-type-badge.post {
+  color: var(--accent);
+}
+.job-type-badge.channel {
+  color: var(--accent-2);
+}
+.job-type-badge.gallery-dl {
+  color: var(--info);
+}
+
+.job-status-badge.downloading {
+  color: var(--info);
+}
+.job-status-badge.completed {
+  color: var(--ok);
+}
+.job-status-badge.failed,
+.job-status-badge.cancelled {
+  color: var(--danger);
+}
+
+.progress-bar-wrapper {
+  display: block;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #0d0f13;
+}
+
+.progress-bar-fill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--info));
+}
+
+.console-panel {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.console-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.console-header div {
+  display: grid;
+  gap: 3px;
+}
+.console-header span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.terminal-panel {
+  min-height: 420px;
+  max-height: 58vh;
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #090b0f;
+  color: #a7f3d0;
+  white-space: pre-wrap;
+  font:
+    12px/1.55 ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+}
+
+/* Status strip / toolbar shared */
+.status-strip,
+.toolbar,
+.filter-dock,
+.bulk-bar,
+.queue-toolbar,
+.profile-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.toolbar,
+.filter-dock,
+.bulk-bar,
+.queue-toolbar {
+  margin-bottom: 12px;
+}

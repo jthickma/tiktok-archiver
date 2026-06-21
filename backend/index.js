@@ -17,7 +17,7 @@ import {
   readQueueSummary,
   recoverInterruptedJobs,
   resumeQueue,
-  retryJob
+  retryJob,
 } from './queue.js';
 import { createChannelRegistry } from './channels.js';
 import { detectUrlType } from './identity.js';
@@ -25,15 +25,35 @@ import { createMonitor } from './monitor.js';
 import { getPost, getPostMediaFiles, searchPosts } from './posts.js';
 import { sendPostMedia, sendPostMediaFile } from './archives.js';
 import { getSystemStatus } from './status.js';
-import { ApiError, parseDownloaderChoice, parseId, parsePostsQuery, parseQueueQuery, requireBodyString, sendError } from './validation.js';
+import {
+  ApiError,
+  parseDownloaderChoice,
+  parsePostsQuery,
+  parseQueueQuery,
+  parseId,
+  requireBodyString,
+  sendError,
+} from './validation.js';
 import { logger } from './logger.js';
 import { ensurePostThumbnails } from './thumbnails.js';
+import { asyncRoute } from './middleware/async-handler.js';
+import { requestLogger } from './middleware/request-logger.js';
+import { createRateLimiter } from './middleware/rate-limiter.js';
+import { globalErrorHandler } from './middleware/error-handler.js';
+import { createChannelRoutes } from './routes/channel-routes.js';
+import { createPostRoutes } from './routes/post-routes.js';
+import { createQueueRoutes } from './routes/queue-routes.js';
+import { createSystemRoutes } from './routes/system-routes.js';
+import { createArchiveRoutes } from './routes/archive-routes.js';
+import { dbAll, dbGet, dbRun } from './database.js';
+import * as archiveService from './services/archive-service.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const PORT = process.env.PORT || 8080;
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '../data');
-const DOWNLOADS_DIR = process.env.DOWNLOADS_DIR || path.join(__dirname, '../downloads');
+const DOWNLOADS_DIR =
+  process.env.DOWNLOADS_DIR || path.join(__dirname, '../downloads');
 const FRONTEND_DIST_DIR = path.join(__dirname, '../frontend/dist');
 const CHANNELS_FILE = path.join(DATA_DIR, 'channels.txt');
 const COOKIES_FILE = path.join(DATA_DIR, 'cookies.txt');
@@ -43,6 +63,8 @@ const app = express();
 app.set('trust proxy', 1);
 app.use(cors());
 app.use(express.json({ limit: '2mb' }));
+app.use(requestLogger);
+app.use(createRateLimiter({ windowMs: 60000, max: 200 }));
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
@@ -52,155 +74,99 @@ app.use('/media', express.static(DOWNLOADS_DIR));
 const channelRegistry = createChannelRegistry({ channelsFile: CHANNELS_FILE });
 const monitor = createMonitor({ channelRegistry, enqueue });
 
-const asyncRoute = (handler) => async (req, res) => {
-  try {
-    await handler(req, res);
-  } catch (error) {
-    logger.error('api route failed', { path: req.path, method: req.method, error });
-    if (!res.headersSent) sendError(res, error);
-  }
-};
-
-const parseDownloadTarget = (input, downloader) => {
-  try {
-    return detectUrlType(input, { downloader });
-  } catch (error) {
-    throw new ApiError(400, 'INVALID_URL', error.message || 'URL is invalid');
-  }
-};
-
-app.get('/api/status', asyncRoute(async (req, res) => {
-  res.json(await getSystemStatus({
+// Mount route modules
+app.use(
+  '/api/channels',
+  createChannelRoutes(express.Router(), channelRegistry, enqueue),
+);
+app.use(
+  '/api/posts',
+  createPostRoutes(express.Router(), {
+    searchPosts,
+    getPost,
+    getPostMediaFiles,
+    sendPostMedia,
+    sendPostMediaFile,
+    ensurePostThumbnails,
+    downloadsDir: DOWNLOADS_DIR,
+    fs,
+    path,
+  }),
+);
+app.use(
+  '/api/queue',
+  createQueueRoutes(express.Router(), {
+    listQueueJobs,
+    readJobLogs,
+    cancelJob,
+    retryJob,
+    deleteJob,
+    clearCompletedJobs,
+    pauseQueue,
+    resumeQueue,
+  }),
+);
+app.use(
+  '/api',
+  createSystemRoutes(express.Router(), {
+    getSystemStatus,
+    getQueueState,
+    monitorState: monitor.state,
     startedAt,
     dataDir: DATA_DIR,
     downloadsDir: DOWNLOADS_DIR,
-    queueState: getQueueState(),
-    monitorState: monitor.state()
-  }));
-}));
+    cookiesFile: COOKIES_FILE,
+    fs,
+  }),
+);
+app.use(
+  '/api/archive',
+  createArchiveRoutes(express.Router(), {
+    dbAll,
+    dbGet,
+    dbRun,
+    archiveService,
+    downloadsDir: DOWNLOADS_DIR,
+    getPost,
+  }),
+);
 
-app.get('/api/channels', asyncRoute(async (req, res) => {
-  res.json(await channelRegistry.listChannels());
-}));
+// Download URL endpoint
+app.post(
+  '/api/download-url',
+  asyncRoute(async (req, res) => {
+    const input = requireBodyString(req.body, 'url');
+    const downloader = parseDownloaderChoice(req.body?.downloader);
+    const target = (() => {
+      try {
+        return detectUrlType(input, { downloader });
+      } catch (error) {
+        throw new ApiError(
+          400,
+          'INVALID_URL',
+          error.message || 'URL is invalid',
+        );
+      }
+    })();
+    const job = await enqueue(target.url, target.type);
+    res.status(job.created ? 201 : 200).json({
+      message: job.requeued
+        ? 'URL requeued for download'
+        : job.created
+          ? 'URL added to download queue'
+          : 'URL is already in the queue',
+      type: target.type,
+      downloader,
+      job,
+    });
+  }),
+);
 
-app.post('/api/channels', asyncRoute(async (req, res) => {
-  const url = requireBodyString(req.body, 'url');
-  const channel = await channelRegistry.monitorProfile(url);
-  const job = await enqueue(channel.url, 'channel');
-  res.status(job.created ? 201 : 200).json({
-    message: job.requeued ? 'Profile monitoring requeued' : job.created ? 'Profile monitoring queued' : 'Profile is already queued',
-    channelId: channel.id,
-    job
-  });
-}));
-
-app.delete('/api/channels/:id', asyncRoute(async (req, res) => {
-  await channelRegistry.stopMonitoring(req.params.id);
-  res.json({ message: `Stopped monitoring channel: ${req.params.id}` });
-}));
-
-app.get('/api/posts', asyncRoute(async (req, res) => {
-  const result = await searchPosts(parsePostsQuery(req.query));
-  res.json({
-    ...result,
-    posts: await ensurePostThumbnails(result.posts, DOWNLOADS_DIR)
-  });
-}));
-
-app.get('/api/posts/:id/download', asyncRoute(async (req, res) => {
-  await sendPostMedia({ res, downloadsDir: DOWNLOADS_DIR, post: await getPost(req.params.id) });
-}));
-
-app.get('/api/posts/:id/files/:index/download', asyncRoute(async (req, res) => {
-  const index = Number.parseInt(req.params.index, 10);
-  if (!Number.isInteger(index) || index < 0) {
-    throw new ApiError(400, 'INVALID_INDEX', 'File index must be zero or greater');
-  }
-  await sendPostMediaFile({ res, downloadsDir: DOWNLOADS_DIR, post: await getPost(req.params.id), index });
-}));
-
-app.get('/api/posts/:id', asyncRoute(async (req, res) => {
-  const post = await getPost(req.params.id);
-  if (!post) throw new ApiError(404, 'NOT_FOUND', 'Post not found');
-  const media = await getPostMediaFiles(post, DOWNLOADS_DIR, fs, path);
-  res.json({
-    post,
-    media,
-    images: media.filter((item) => item.kind === 'image').map((item) => item.name)
-  });
-}));
-
-app.post('/api/download-url', asyncRoute(async (req, res) => {
-  const input = requireBodyString(req.body, 'url');
-  const downloader = parseDownloaderChoice(req.body?.downloader);
-  const target = parseDownloadTarget(input, downloader);
-  const job = await enqueue(target.url, target.type);
-  res.status(job.created ? 201 : 200).json({
-    message: job.requeued ? 'URL requeued for download' : job.created ? 'URL added to download queue' : 'URL is already in the queue',
-    type: target.type,
-    downloader,
-    job
-  });
-}));
-
-app.get('/api/queue', asyncRoute(async (req, res) => {
-  res.json(await listQueueJobs(parseQueueQuery(req.query)));
-}));
-
-app.get('/api/queue/:id/logs', asyncRoute(async (req, res) => {
-  res.json(await readJobLogs(parseId(req.params.id)));
-}));
-
-app.post('/api/queue/:id/cancel', asyncRoute(async (req, res) => {
-  await cancelJob(parseId(req.params.id));
-  res.json({ message: 'Job cancelled' });
-}));
-
-app.post('/api/queue/:id/retry', asyncRoute(async (req, res) => {
-  await retryJob(parseId(req.params.id));
-  res.json({ message: 'Job requeued' });
-}));
-
-app.delete('/api/queue/history/completed', asyncRoute(async (req, res) => {
-  const result = await clearCompletedJobs();
-  res.json({ message: 'Completed queue entries cleared', count: result.changes });
-}));
-
-app.delete('/api/queue/:id', asyncRoute(async (req, res) => {
-  await deleteJob(parseId(req.params.id));
-  res.json({ message: 'Job deleted' });
-}));
-
-app.post('/api/queue/pause', asyncRoute(async (req, res) => {
-  pauseQueue();
-  res.json({ message: 'Queue paused' });
-}));
-
-app.post('/api/queue/resume', asyncRoute(async (req, res) => {
-  resumeQueue();
-  res.json({ message: 'Queue resumed' });
-}));
-
-app.get('/api/cookies', (req, res) => {
-  try {
-    res.json({ cookies: fs.existsSync(COOKIES_FILE) ? fs.readFileSync(COOKIES_FILE, 'utf8') : '' });
-  } catch (error) {
-    sendError(res, error);
-  }
-});
-
-app.post('/api/cookies', (req, res) => {
-  try {
-    if (req.body.cookies === undefined) throw new ApiError(400, 'INVALID_BODY', 'Cookies content is required');
-    fs.writeFileSync(COOKIES_FILE, req.body.cookies, 'utf8');
-    res.json({ message: 'Cookies saved successfully' });
-  } catch (error) {
-    sendError(res, error);
-  }
-});
-
+// Static frontend serving
 if (fs.existsSync(FRONTEND_DIST_DIR)) {
-  logger.info('serving frontend production assets', { path: FRONTEND_DIST_DIR });
+  logger.info('serving frontend production assets', {
+    path: FRONTEND_DIST_DIR,
+  });
   app.use(express.static(FRONTEND_DIST_DIR));
   app.get('*', (req, res) => {
     res.sendFile(path.join(FRONTEND_DIST_DIR, 'index.html'));
@@ -208,6 +174,9 @@ if (fs.existsSync(FRONTEND_DIST_DIR)) {
 } else {
   logger.info('frontend dist missing; api-only mode');
 }
+
+// Global error handler
+app.use(globalErrorHandler);
 
 const startApp = async () => {
   await initDb();
@@ -218,11 +187,13 @@ const startApp = async () => {
     logger.info('server started', {
       port: PORT,
       downloads_dir: DOWNLOADS_DIR,
-      data_dir: DATA_DIR
+      data_dir: DATA_DIR,
     });
   });
 
-  monitor.runOnce().catch((error) => logger.error('initial monitor failed', { error }));
+  monitor
+    .runOnce()
+    .catch((error) => logger.error('initial monitor failed', { error }));
   processQueue();
   monitor.start();
 };
