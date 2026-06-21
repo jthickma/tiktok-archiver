@@ -1,5 +1,6 @@
 import { dbRun, dbGet, dbAll } from './database.js';
-import { downloadPost, downloadWithGalleryDl, scanProfile, extractUsername } from './downloader.js';
+import { downloadPost, downloadWithGalleryDl, scanProfile } from './downloader.js';
+import { requireTikTokUsername } from './identity.js';
 import { logger } from './logger.js';
 import { ApiError } from './validation.js';
 
@@ -347,7 +348,7 @@ export const processQueue = async () => {
           // CHANNEL SCAN JOB
           await updateJobStatus(job.id, 10, 'downloading', 'Scanning profile for posts...');
           const entries = await scanProfile(job.url, processOptions);
-          const username = extractUsername(job.url);
+          const username = requireTikTokUsername(job.url);
 
           await updateJobStatus(job.id, 50, 'downloading', `Found ${entries.length} posts. Checking for new downloads...`);
           

@@ -4,7 +4,11 @@ export const normalizeHandle = (input) => {
   if (!match) {
     throw new Error('Invalid TikTok handle');
   }
-  return `@${match[1].replace(/^@/, '')}`;
+  const handle = match[1].replace(/^@/, '');
+  if (/^\d+$/.test(handle)) {
+    throw new Error('TikTok numeric profile IDs are not valid usernames');
+  }
+  return `@${handle}`;
 };
 
 export const normalizeProfileUrl = (input) => {
@@ -36,7 +40,7 @@ export const normalizeProfileUrl = (input) => {
     throw new Error('TikTok profile URL must include an @handle');
   }
 
-  return `https://www.tiktok.com/@${handleMatch[1]}`;
+  return `https://www.tiktok.com/${normalizeHandle(handleMatch[1])}`;
 };
 
 export const canonicalizeTikTokUrl = (input) => {
@@ -119,25 +123,36 @@ export const isTikTokUrl = (input) => {
 };
 
 export const extractUsername = (url, metadata = {}) => {
-  const candidates = [
+  const urlCandidates = [
     metadata.webpage_url,
     url,
-    metadata.original_url,
-    metadata.uploader
+    metadata.original_url
   ].filter(Boolean);
 
-  for (const candidate of candidates) {
+  for (const candidate of urlCandidates) {
     const match = String(candidate).match(/@([a-zA-Z0-9_.-]+)/);
-    if (match) {
+    if (match && !/^\d+$/.test(match[1])) {
       return normalizeHandle(match[1]);
     }
   }
 
-  if (metadata.uploader && !/^\d+$/.test(String(metadata.uploader))) {
-    return normalizeHandle(metadata.uploader);
+  const metadataCandidates = [metadata.uploader, metadata.channel, metadata.creator];
+  for (const candidate of metadataCandidates) {
+    const value = String(candidate || '').trim();
+    if (/^[a-zA-Z0-9_.-]{2,24}$/.test(value) && !/^\d+$/.test(value)) {
+      return normalizeHandle(value);
+    }
   }
 
   return '@unknown';
+};
+
+export const requireTikTokUsername = (url, metadata = {}) => {
+  const username = extractUsername(url, metadata);
+  if (username === '@unknown' || /^@\d+$/.test(username)) {
+    throw new Error('Unable to determine the TikTok username; refusing to create a numeric or unknown profile folder');
+  }
+  return username;
 };
 
 export const detectUrlType = (input, options = {}) => {

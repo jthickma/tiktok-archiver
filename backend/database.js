@@ -3,6 +3,8 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { logger } from './logger.js';
+import { extractUsername } from './identity.js';
+import { migrateNumericProfilePaths, migrateSlideshowPostPaths } from './profile-path-migration.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -14,6 +16,7 @@ if (!fs.existsSync(DATA_DIR)) {
 }
 
 const DB_PATH = path.join(DATA_DIR, 'tiktok.db');
+const DOWNLOADS_DIR = process.env.DOWNLOADS_DIR || path.join(__dirname, '../downloads');
 const db = new sqlite3.Database(DB_PATH);
 
 // Wrap sqlite3 methods in Promises for async/await usage
@@ -151,25 +154,26 @@ export const initDb = async () => {
   await healDatabase();
 };
 
-const extractUsernameFromUrl = (url) => {
-  if (!url) return null;
-  const match = url.match(/@([a-zA-Z0-9_.-]+)/);
-  if (match) {
-    const handle = match[1].replace(/^@/, '');
-    return `@${handle}`;
+const parseMetadata = (metadataJson) => {
+  if (!metadataJson) return {};
+  try {
+    const metadata = JSON.parse(metadataJson);
+    return metadata && typeof metadata === 'object' ? metadata : {};
+  } catch {
+    return {};
   }
-  return null;
 };
 
 export const healDatabase = async () => {
   logger.info('database healing check started');
   try {
     // 1. Fetch all posts
-    const posts = await dbAll('SELECT id, channel_id, url FROM posts');
+    const posts = await dbAll('SELECT id, channel_id, url, file_path, thumbnail_path, metadata_json FROM posts');
     logger.info('database healing posts scanned', { count: posts.length });
 
     for (const post of posts) {
-      const correctChannelId = extractUsernameFromUrl(post.url);
+      const extractedUsername = extractUsername(post.url, parseMetadata(post.metadata_json));
+      const correctChannelId = extractedUsername === '@unknown' ? null : extractedUsername;
       if (correctChannelId && correctChannelId !== post.channel_id) {
         logger.warn('post linked to incorrect channel', { post_id: post.id, channel_id: post.channel_id, correct_channel_id: correctChannelId });
         
@@ -226,6 +230,37 @@ export const healDatabase = async () => {
           logger.info('database healing deleted orphaned numeric channel', { channel_id: chan.id });
         }
       }
+    }
+
+    const healedPosts = await dbAll(
+      'SELECT id, channel_id, type, file_path, thumbnail_path, metadata_json FROM posts'
+    );
+    const migration = await migrateNumericProfilePaths({
+      downloadsDir: DOWNLOADS_DIR,
+      posts: healedPosts,
+      updatePost: ({ id, filePath, thumbnailPath, metadataJson }) => dbRun(
+        'UPDATE posts SET file_path = ?, thumbnail_path = ?, metadata_json = ? WHERE id = ?',
+        [filePath, thumbnailPath, metadataJson, id]
+      ),
+      logger
+    });
+    if (migration.mappings > 0) {
+      logger.info('numeric profile path migration completed', migration);
+    }
+    const postsAfterProfileMigration = await dbAll(
+      'SELECT id, channel_id, type, file_path, thumbnail_path, metadata_json FROM posts'
+    );
+    const slideshowMigration = await migrateSlideshowPostPaths({
+      downloadsDir: DOWNLOADS_DIR,
+      posts: postsAfterProfileMigration,
+      updatePost: ({ id, filePath, thumbnailPath, metadataJson }) => dbRun(
+        'UPDATE posts SET file_path = ?, thumbnail_path = ?, metadata_json = ? WHERE id = ?',
+        [filePath, thumbnailPath, metadataJson, id]
+      ),
+      logger
+    });
+    if (slideshowMigration.migratedPosts > 0 || slideshowMigration.removedEmptyDirectories > 0) {
+      logger.info('slideshow path migration completed', slideshowMigration);
     }
 
     logger.info('database healing check completed');
