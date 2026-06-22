@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "lint": "node --check index.js && node --check database.js && node --check downloader.js && node --check queue.js && node --check channels.js && node --check posts.js && node --check archives.js && node --check monitor.js && node --check status.js && node --check validation.js && node --check identity.js && node --check archive-naming.js && node --check logger.js && node --check thumbnails.js && node --check profile-path-migration.js && node --check archive-naming.test.js && node --check identity.test.js && node --check profile-path-migration.test.js && node --check tests/validation.test.js",
+    "lint": "node --check index.js && node --check database.js && node --check downloader.js && node --check queue.js && node --check channels.js && node --check posts.js && node --check archives.js && node --check monitor.js && node --check status.js && node --check validation.js && node --check identity.js && node --check archive-naming.js && node --check logger.js && node --check thumbnails.js && node --check profile-path-migration.js && node --check yt-dlp-options.js && node --check archive-naming.test.js && node --check identity.test.js && node --check profile-path-migration.test.js && node --check yt-dlp-options.test.js && node --check tests/validation.test.js",
     "test": "node --test && npm run lint"
   },
   "dependencies": {

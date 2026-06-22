@@ -27,6 +27,7 @@ import {
   listFiles,
 } from './utils/media-files.js';
 import { toWebPath, safeSegment } from './utils/path-utils.js';
+import { buildBrowserVideoArgs } from './yt-dlp-options.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -901,17 +902,7 @@ const downloadWithYtDlp = async (url, metadata, onProgress, options) => {
   onProgress(20, 'Downloading media with yt-dlp...');
 
   const outTemplate = path.join(channelDir, `${outputBase}.%(ext)s`);
-  const ytArgs = [
-    '--format',
-    'bestvideo+bestaudio/best',
-    '--merge-output-format',
-    'mp4',
-    '--write-thumbnail',
-    '--no-playlist',
-    '--no-warnings',
-    '-o',
-    outTemplate,
-  ];
+  const ytArgs = buildBrowserVideoArgs(outTemplate);
 
   if (hasCookies()) {
     ytArgs.push('--cookies', COOKIES_PATH);
