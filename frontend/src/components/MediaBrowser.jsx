@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { requestJson } from '../utils/api';
-import { formatDateTime } from '../utils/format';
-import { avatarText, displaySource, fallbackThumb, getAvatarColor, isGroupedMedia } from '../utils/media';
+import { displaySource, fallbackThumb, isGroupedMedia } from '../utils/media';
+import ArchiveFilters from './archive/ArchiveFilters';
+import ArchiveViewer from './archive/ArchiveViewer';
 
 export default function MediaBrowser() {
   const [posts, setPosts] = useState([]);
@@ -27,10 +28,6 @@ export default function MediaBrowser() {
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   const totalPages = Math.max(1, Math.ceil(total / limit));
-  const activeMedia = activePost ? mediaFiles[slideIndex] : null;
-  const activeMediaPath = activeMedia?.path || activePost?.file_path;
-  const activeMediaKind = activeMedia?.kind || activePost?.type;
-
   const queryString = useMemo(() => {
     const params = new URLSearchParams({
       page,
@@ -42,127 +39,95 @@ export default function MediaBrowser() {
       type: selectedType,
       date_from: dateFrom,
       date_to: dateTo,
-      missing_thumbnail: missingThumbnail ? '1' : ''
+      missing_thumbnail: missingThumbnail ? '1' : '',
     });
     return params.toString();
   }, [page, limit, sort, direction, search, selectedChannels, selectedType, dateFrom, dateTo, missingThumbnail]);
 
-  const fetchPosts = async () => {
+  const openPost = async (post) => {
+    setActivePost(post);
+    setMediaFiles([]);
+    setSlideIndex(0);
+    if (!isGroupedMedia(post.type)) return;
     try {
-      setError('');
-      setLoading(true);
-      const data = await requestJson(`/api/posts?${queryString}`, {}, 'Failed to load archive');
-      setPosts(data.posts || []);
-      setTotal(data.total || 0);
-    } catch (err) {
-      setError(err.message);
-      setPendingNavigation(null);
-    } finally {
-      setLoading(false);
+      const data = await requestJson(`/api/posts/${post.id}`, {}, 'Failed to load media files');
+      setMediaFiles(data.media || []);
+    } catch (requestError) {
+      setError(requestError.message);
     }
   };
 
-  const handlePrevPost = () => {
+  const handlePrevious = () => {
     if (!activePost) return;
-    const currentIndex = posts.findIndex((p) => p.id === activePost.id);
-    if (currentIndex > 0) {
-      openPost(posts[currentIndex - 1]);
-    } else if (page > 1) {
+    const index = posts.findIndex((post) => post.id === activePost.id);
+    if (index > 0) void openPost(posts[index - 1]);
+    else if (page > 1) {
       setPendingNavigation('last');
-      setPage(page - 1);
+      setPage((value) => value - 1);
     }
   };
 
-  const handleNextPost = () => {
+  const handleNext = () => {
     if (!activePost) return;
-    const currentIndex = posts.findIndex((p) => p.id === activePost.id);
-    if (currentIndex < posts.length - 1) {
-      openPost(posts[currentIndex + 1]);
-    } else if (page < totalPages) {
+    const index = posts.findIndex((post) => post.id === activePost.id);
+    if (index < posts.length - 1) void openPost(posts[index + 1]);
+    else if (page < totalPages) {
       setPendingNavigation('first');
-      setPage(page + 1);
+      setPage((value) => value + 1);
     }
   };
 
-  // Handle auto-selection after cross-page navigation
   useEffect(() => {
-    if (pendingNavigation && posts.length > 0) {
-      if (pendingNavigation === 'first') {
-        openPost(posts[0]);
-      } else if (pendingNavigation === 'last') {
-        openPost(posts[posts.length - 1]);
-      }
-      setPendingNavigation(null);
-    }
-  }, [posts, pendingNavigation]);
-
-  // Keyboard navigation shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (!activePost) return;
-
-      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) {
-        return;
-      }
-
-      if (e.key === 'Escape') {
-        setActivePost(null);
-      } else if (e.key === 'ArrowLeft') {
-        handlePrevPost();
-      } else if (e.key === 'ArrowRight') {
-        handleNextPost();
-      } else if (e.key === 'ArrowUp') {
-        if (isGroupedMedia(activePost.type) && mediaFiles.length > 1) {
-          e.preventDefault();
-          setSlideIndex((prev) => (prev - 1 + mediaFiles.length) % mediaFiles.length);
-        }
-      } else if (e.key === 'ArrowDown') {
-        if (isGroupedMedia(activePost.type) && mediaFiles.length > 1) {
-          e.preventDefault();
-          setSlideIndex((prev) => (prev + 1) % mediaFiles.length);
-        }
-      } else if (e.key === ' ') {
-        if (activeMediaKind === 'video') {
-          e.preventDefault();
-          const videoEl = document.querySelector('.media-modal-viewer video');
-          if (videoEl) {
-            if (videoEl.paused) {
-              videoEl.play().catch(() => {});
-            } else {
-              videoEl.pause();
-            }
-          }
-        }
-      }
+    let current = true;
+    setError('');
+    setLoading(true);
+    requestJson(`/api/posts?${queryString}`, {}, 'Failed to load archive')
+      .then((data) => {
+        if (!current) return;
+        setPosts(data.posts || []);
+        setTotal(data.total || 0);
+      })
+      .catch((requestError) => {
+        if (current) setError(requestError.message);
+      })
+      .finally(() => {
+        if (current) setLoading(false);
+      });
+    return () => {
+      current = false;
     };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activePost, posts, page, totalPages, mediaFiles, pendingNavigation, activeMediaKind]);
-
-  const fetchChannels = async () => {
-    try {
-      const data = await requestJson('/api/channels', {}, 'Failed to load profiles');
-      setChannels(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(err.message);
-    }
-  };
-
-  useEffect(() => {
-    fetchPosts();
   }, [queryString]);
 
   useEffect(() => {
-    fetchChannels();
+    let current = true;
+    requestJson('/api/channels', {}, 'Failed to load profiles')
+      .then((data) => {
+        if (current) setChannels(Array.isArray(data) ? data : []);
+      })
+      .catch((requestError) => {
+        if (current) setError(requestError.message);
+      });
+    return () => {
+      current = false;
+    };
   }, []);
+
+  useEffect(() => {
+    if (!pendingNavigation || posts.length === 0) return;
+    void openPost(pendingNavigation === 'first' ? posts[0] : posts.at(-1));
+    setPendingNavigation(null);
+  }, [posts, pendingNavigation]);
 
   useEffect(() => {
     setPage(1);
   }, [search, selectedChannels, selectedType, sort, direction, dateFrom, dateTo, missingThumbnail, limit]);
 
   const toggleChannel = (id) => {
-    setSelectedChannels((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+    setSelectedChannels((current) =>
+      current.includes(id)
+        ? current.filter((item) => item !== id)
+        : [...current, id],
+    );
   };
 
   const clearFilters = () => {
@@ -177,107 +142,35 @@ export default function MediaBrowser() {
     setPage(1);
   };
 
-  const openPost = async (post) => {
-    setActivePost(post);
-    setMediaFiles([]);
-    setSlideIndex(0);
-    if (isGroupedMedia(post.type)) {
-      try {
-        const data = await requestJson(`/api/posts/${post.id}`, {}, 'Failed to load media files');
-        setMediaFiles(data.media || []);
-      } catch (err) {
-        setError(err.message);
-      }
-    }
-  };
-
   return (
     <div className="archive-console">
-      {error && <div className="alert danger">{error}</div>}
-
-      <div className="toolbar">
-        <label className="archive-search">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-            <circle cx="11" cy="11" r="7" />
-            <path d="m20 20-4-4" />
-          </svg>
-          <input
-            className="text-input search-input"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search your archive"
-            aria-label="Search archive"
-          />
-        </label>
-        <button
-          type="button"
-          className={`btn btn-secondary mobile-filter-toggle ${filtersOpen ? 'active' : ''}`}
-          onClick={() => setFiltersOpen((open) => !open)}
-          aria-expanded={filtersOpen}
-        >
-          Filters
-          {(selectedType || selectedChannels.length || dateFrom || dateTo || missingThumbnail) ? <span className="filter-count">•</span> : null}
-        </button>
-      </div>
-
-      <div className={`archive-filters ${filtersOpen ? 'open' : ''}`}>
-        <div className="filter-dock">
-          <div className="segmented-control media-type-filter">
-            {['', 'video', 'slideshow', 'image', 'gallery', 'audio'].map((type) => (
-              <button key={type || 'all'} type="button" className={selectedType === type ? 'active' : ''} onClick={() => setSelectedType(type)}>
-                {type || 'all'}
-              </button>
-            ))}
-          </div>
-          <select className="select-input" value={sort} onChange={(event) => setSort(event.target.value)} aria-label="Sort archive">
-            <option value="upload_date">Upload date</option>
-            <option value="downloaded_at">Download date</option>
-            <option value="profile">Profile</option>
-            <option value="type">Type</option>
-            <option value="title">Title</option>
-          </select>
-          <button type="button" className="icon-btn" onClick={() => setDirection(direction === 'desc' ? 'asc' : 'desc')} title="Toggle sort direction">
-            {direction === 'desc' ? 'Newest first' : 'Oldest first'}
-          </button>
-          <select className="select-input" value={limit} onChange={(event) => setLimit(Number(event.target.value))} aria-label="Items per page">
-            <option value={24}>24 per page</option>
-            <option value={36}>36 per page</option>
-            <option value={60}>60 per page</option>
-            <option value={100}>100 per page</option>
-          </select>
-          <label className="check-pill">
-            <input type="checkbox" checked={missingThumbnail} onChange={(event) => setMissingThumbnail(event.target.checked)} />
-            Missing thumbnail
-          </label>
-          <input className="date-input" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} aria-label="Start date" />
-          <input className="date-input" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} aria-label="End date" />
-          <div className="segmented-control density-control">
-            {['dense', 'compact', 'wide'].map((mode) => (
-              <button key={mode} type="button" className={density === mode ? 'active' : ''} onClick={() => setDensity(mode)}>
-                {mode}
-              </button>
-            ))}
-          </div>
-          <button type="button" className="btn btn-secondary" onClick={clearFilters}>
-            Clear
-          </button>
-        </div>
-
-        {channels.length > 0 && (
-          <div className="profile-filter" aria-label="Profile filters">
-            {channels.map((channel) => (
-              <button
-                key={channel.id}
-                type="button"
-                className={selectedChannels.includes(channel.id) ? 'active' : ''}
-                onClick={() => toggleChannel(channel.id)}
-              >
-                @{channel.username}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+      {error ? <div className="alert danger">{error}</div> : null}
+      <ArchiveFilters
+        search={search}
+        setSearch={setSearch}
+        filtersOpen={filtersOpen}
+        setFiltersOpen={setFiltersOpen}
+        selectedType={selectedType}
+        setSelectedType={setSelectedType}
+        selectedChannels={selectedChannels}
+        toggleChannel={toggleChannel}
+        channels={channels}
+        sort={sort}
+        setSort={setSort}
+        direction={direction}
+        setDirection={setDirection}
+        limit={limit}
+        setLimit={setLimit}
+        missingThumbnail={missingThumbnail}
+        setMissingThumbnail={setMissingThumbnail}
+        dateFrom={dateFrom}
+        setDateFrom={setDateFrom}
+        dateTo={dateTo}
+        setDateTo={setDateTo}
+        density={density}
+        setDensity={setDensity}
+        clearFilters={clearFilters}
+      />
 
       <div className="bulk-bar">
         <span>{loading ? 'Loading archive...' : `${total} items`}</span>
@@ -292,14 +185,16 @@ export default function MediaBrowser() {
         <div className={`media-grid density-${density}`}>
           {posts.map((post) => (
             <article key={post.id} className="media-card">
-              <button type="button" className="media-open" onClick={() => openPost(post)}>
+              <button type="button" className="media-open" onClick={() => void openPost(post)}>
                 <span className="media-thumbnail-wrapper">
                   <img
                     src={post.thumbnail_path ? `/media/${post.thumbnail_path}` : fallbackThumb(post.type)}
                     alt={post.title || post.description || post.id}
                     className="media-thumbnail"
                     loading="lazy"
-                    onError={(event) => { event.currentTarget.src = fallbackThumb(post.type); }}
+                    onError={(event) => {
+                      event.currentTarget.src = fallbackThumb(post.type);
+                    }}
                   />
                   <span className={`media-badge ${post.type}`}>{post.type}</span>
                 </span>
@@ -309,204 +204,33 @@ export default function MediaBrowser() {
                   <span className="media-meta">{post.upload_date || 'No date'} / downloaded {post.downloaded_at?.slice(0, 10) || 'unknown'}</span>
                 </span>
               </button>
-              {!isGroupedMedia(post.type) && (
-                <a className="card-download-btn visible" href={`/api/posts/${post.id}/download`} title="Download media" aria-label="Download media" download>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                    <path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14" />
-                  </svg>
-                </a>
-              )}
+              {!isGroupedMedia(post.type) ? (
+                <a className="card-download-btn visible" href={`/api/posts/${post.id}/download`} title="Download media" aria-label="Download media" download>↓</a>
+              ) : null}
             </article>
           ))}
         </div>
       )}
 
       <div className="pagination-controls">
-        <button className="btn btn-secondary" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</button>
+        <button className="btn btn-secondary" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Previous</button>
         <span className="pagination-label">Page {page} of {totalPages}</span>
-        <button className="btn btn-secondary" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>Next</button>
+        <button className="btn btn-secondary" disabled={page >= totalPages} onClick={() => setPage((value) => value + 1)}>Next</button>
       </div>
 
-      {activePost && (
-        <div className="modal-overlay" onClick={() => setActivePost(null)}>
-          <div className="modal-container media-modal-container" onClick={(event) => event.stopPropagation()}>
-            <button type="button" className="modal-close-btn" onClick={() => setActivePost(null)} aria-label="Close">✕</button>
-            
-            <div className="media-player-layout">
-              {/* Left side: Media Viewer (Video or Slideshow) */}
-              <div className="media-viewer-pane">
-                {/* Previous Button Overlay */}
-                <button 
-                  type="button" 
-                  className="nav-arrow-overlay prev-arrow" 
-                  onClick={handlePrevPost} 
-                  title="Previous Video (←)"
-                  aria-label="Previous Video"
-                >
-                  <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="15 18 9 12 15 6"></polyline>
-                  </svg>
-                </button>
-
-                {/* Media content */}
-                <div className="media-modal-viewer">
-                  {activeMediaKind === 'video' ? (
-                    <video
-                      controls
-                      autoPlay
-                      playsInline
-                      src={`/media/${activeMediaPath}`}
-                    />
-                  ) : activeMediaKind === 'image' ? (
-                    <div className="slideshow-view">
-                      <img src={`/media/${activeMediaPath}`} alt={activeMedia?.name || activePost.title || activePost.id} />
-                    </div>
-                  ) : activeMediaKind === 'audio' ? (
-                    <div className="slideshow-view">
-                      <audio controls autoPlay src={`/media/${activeMediaPath}`} />
-                    </div>
-                  ) : (
-                    <div className="slideshow-view">
-                      {mediaFiles.length > 0 ? (
-                        <img src={`/media/${mediaFiles[slideIndex].path}`} alt={mediaFiles[slideIndex].name || `Media ${slideIndex + 1}`} />
-                      ) : (
-                        <div className="empty-state">No media files found.</div>
-                      )}
-                      {mediaFiles.length > 1 && (
-                        <div className="slide-indicator-pills">
-                          {mediaFiles.map((_, idx) => (
-                            <button 
-                              key={idx} 
-                              type="button" 
-                              className={`slide-indicator-dot ${idx === slideIndex ? 'active' : ''}`}
-                              onClick={() => setSlideIndex(idx)}
-                              title={`Go to slide ${idx + 1}`}
-                            />
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Next Button Overlay */}
-                <button 
-                  type="button" 
-                  className="nav-arrow-overlay next-arrow" 
-                  onClick={handleNextPost} 
-                  title="Next Video (→)"
-                  aria-label="Next Video"
-                >
-                  <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="9 18 15 12 9 6"></polyline>
-                  </svg>
-                </button>
-
-                {/* Slideshow specific HUD controls */}
-                {isGroupedMedia(activePost.type) && mediaFiles.length > 1 && (
-                  <div className="slideshow-hud-controls">
-                    <button 
-                      type="button" 
-                      className="hud-slide-btn prev-slide" 
-                      onClick={() => setSlideIndex((slideIndex - 1 + mediaFiles.length) % mediaFiles.length)}
-                      title="Previous media (↑)"
-                    >
-                      ▲
-                    </button>
-                    <span className="hud-slide-counter">{slideIndex + 1} / {mediaFiles.length}</span>
-                    <button 
-                      type="button" 
-                      className="hud-slide-btn next-slide" 
-                      onClick={() => setSlideIndex((slideIndex + 1) % mediaFiles.length)}
-                      title="Next media (↓)"
-                    >
-                      ▼
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Right side: Metadata/Info Panel */}
-              <div className="media-info-pane">
-                <div className="info-pane-header">
-                  <div className="author-badge-container">
-                    <div className="author-avatar-circle" style={{ background: getAvatarColor(activePost.channel_id) }}>
-                      {avatarText(activePost.channel_id)}
-                    </div>
-                    <div className="author-meta-text">
-                      <span className="author-username">{displaySource(activePost.channel_id)}</span>
-                      <span className="post-type-badge">{activePost.type}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="info-pane-body">
-                  <div className="post-caption-section">
-                    <h3 className="caption-heading">Caption</h3>
-                    <p className="post-caption-text">{activePost.description || activePost.title || 'No caption available'}</p>
-                  </div>
-
-                  <div className="post-stats-section">
-                    <div className="stat-row">
-                      <span className="stat-label">Upload Date</span>
-                      <span className="stat-value">{activePost.upload_date || 'Unknown'}</span>
-                    </div>
-                    <div className="stat-row">
-                      <span className="stat-label">Archived At</span>
-                      <span className="stat-value">{formatDateTime(activePost.downloaded_at, 'Unknown')}</span>
-                    </div>
-                    <div className="stat-row">
-                      <span className="stat-label">File Name</span>
-                      <span className="stat-value file-path-text" title={activePost.file_path}>
-                        {activePost.file_path?.split('/').pop() || 'Unknown'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="info-pane-footer">
-                  {!isGroupedMedia(activePost.type) ? (
-                    <a href={`/api/posts/${activePost.id}/download`} className="btn-action-primary download-action-btn" download>
-                      <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round" className="btn-icon">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                        <polyline points="7 10 12 15 17 10" />
-                        <line x1="12" y1="15" x2="12" y2="3" />
-                      </svg>
-                      Download Media
-                    </a>
-                  ) : activeMedia ? (
-                    <a href={`/api/posts/${activePost.id}/files/${activeMedia.index}/download`} className="btn-action-primary download-action-btn" download>
-                      <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round" className="btn-icon">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                        <polyline points="7 10 12 15 17 10" />
-                        <line x1="12" y1="15" x2="12" y2="3" />
-                      </svg>
-                      Download File
-                    </a>
-                  ) : (
-                    <div className="slideshow-download-fallback-message">
-                      Media files are stored in: <code className="slide-dir-code">{activePost.file_path}</code>
-                    </div>
-                  )}
-                  
-                  {/* Mobile navigation controls helper bar */}
-                  <div className="mobile-only-control-bar">
-                    <button type="button" className="btn btn-secondary mobile-nav-btn" onClick={handlePrevPost}>
-                      ◀ Prev
-                    </button>
-                    <span className="mobile-nav-page-indicator">
-                      {posts.findIndex((p) => p.id === activePost.id) + 1} / {posts.length}
-                    </span>
-                    <button type="button" className="btn btn-secondary mobile-nav-btn" onClick={handleNextPost}>
-                      Next ▶
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {activePost ? (
+        <ArchiveViewer
+          post={activePost}
+          mediaFiles={mediaFiles}
+          slideIndex={slideIndex}
+          setSlideIndex={setSlideIndex}
+          onClose={() => setActivePost(null)}
+          onPrevious={handlePrevious}
+          onNext={handleNext}
+          position={posts.findIndex((post) => post.id === activePost.id) + 1}
+          pageSize={posts.length}
+        />
+      ) : null}
     </div>
   );
 }

@@ -5,7 +5,7 @@ import fs from 'fs';
 import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
 import { fileURLToPath } from 'url';
-import { dbRun, dbGet } from './database.js';
+import { archiveCatalog } from './archive-runtime.js';
 import { createVideoArchiveBase } from './archive-naming.js';
 import {
   extractUsername as extractNormalizedUsername,
@@ -193,47 +193,10 @@ const uploadDateFromMetadata = (metadata = {}) => {
   return new Date().toISOString().slice(0, 10);
 };
 
-const ensureSourceChannel = async ({ channelId, url }) => {
-  const channelExists = await dbGet('SELECT id FROM channels WHERE id = ?', [
-    channelId,
-  ]);
-  if (channelExists) return;
-
-  await dbRun(
-    'INSERT INTO channels (id, username, url, created_at, is_monitored) VALUES (?, ?, ?, ?, 0)',
-    [
-      channelId,
-      channelId.replace(/^@/, ''),
-      sourceUrlFromId(channelId, url),
-      new Date().toISOString(),
-    ],
-  );
-};
-
 const savePost = async (postData) => {
-  await ensureSourceChannel({
-    channelId: postData.channel_id,
-    url: postData.url,
+  await archiveCatalog.save(postData, {
+    sourceUrl: sourceUrlFromId(postData.channel_id, postData.url),
   });
-
-  await dbRun(
-    `INSERT OR REPLACE INTO posts
-     (id, channel_id, type, title, description, url, upload_date, file_path, thumbnail_path, downloaded_at, metadata_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      postData.id,
-      postData.channel_id,
-      postData.type,
-      postData.title,
-      postData.description,
-      postData.url,
-      postData.upload_date,
-      postData.file_path,
-      postData.thumbnail_path,
-      postData.downloaded_at,
-      postData.metadata_json,
-    ],
-  );
 };
 
 const spawnTool = ({ command, args, label, postId, options, onStdout }) =>
@@ -998,9 +961,7 @@ export const downloadPost = async (
 ) => {
   logger.info('downloader started', { url });
 
-  const duplicateByUrl = await dbGet('SELECT * FROM posts WHERE url = ?', [
-    url,
-  ]);
+  const duplicateByUrl = await archiveCatalog.findByUrl(url);
   if (duplicateByUrl) {
     logger.info('downloader skipped duplicate URL', {
       post_id: duplicateByUrl.id,
@@ -1029,7 +990,7 @@ export const downloadPost = async (
   }
 
   const postId = createPostId(url, metadata);
-  const duplicate = await dbGet('SELECT * FROM posts WHERE id = ?', [postId]);
+  const duplicate = await archiveCatalog.findById(postId);
   if (duplicate) {
     logger.info('downloader skipped duplicate media item', { post_id: postId });
     onProgress(100, 'Duplicate skipped.');

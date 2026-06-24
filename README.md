@@ -17,16 +17,16 @@ TikTok Archiver is a self-hosted media archive for TikTok profiles, individual v
 ```text
 .
 |-- backend/
-|   |-- index.js        # Express server and thin REST route adapters
-|   |-- database.js     # SQLite connection, migrations, schema creation, database healing
-|   |-- channels.js     # channels.txt and channel registry operations
-|   |-- posts.js        # archive search, filtering, post detail helpers
-|   |-- archives.js     # safe media file downloads
-|   |-- monitor.js      # background scan scheduling
+|   |-- index.js        # Composition root and Express adapters
+|   |-- database.js     # SQLite adapter, migrations, and database healing
+|   |-- download-queue.js # Queue lifecycle, retries, cancellation, and dispatch
+|   |-- acquisition.js  # Small interface to media acquisition adapters
+|   |-- downloader.js   # yt-dlp, gallery-dl, direct HTTP, and persistence
+|   |-- channels.js     # Monitored Profiles reconciliation and scheduling
+|   |-- archive-catalog.js # Catalog-to-filesystem invariant and maintenance
 |   |-- validation.js   # API query/body parsing and standardized errors
 |   |-- status.js       # health, queue, tool, and storage checks
-|   |-- downloader.js   # yt-dlp/gallery-dl integration and post persistence
-|   `-- queue.js        # Persistent download queue runner
+|   `-- queue.js        # Compatibility exports for the Download Queue
 |-- frontend/
 |   |-- src/App.jsx
 |   |-- src/components/
@@ -42,8 +42,9 @@ TikTok Archiver is a self-hosted media archive for TikTok profiles, individual v
 |-- downloads/          # Archived media, ignored by git
 |-- Dockerfile
 |-- docker-compose.yml
-|-- ARCHITECTURE.md
-`-- improvements.md
+|-- CONTEXT.md          # Domain language
+|-- ARCHITECTURE.md     # Current module design and test surfaces
+`-- docs/adr/           # Durable architecture decisions
 ```
 
 ## Runtime Requirements

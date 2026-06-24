@@ -1,4 +1,10 @@
-/* Application shell and PWA-specific presentation */
+/*
+ * Application shell presentation.
+ *
+ * Owns navigation, dashboard, archive workspace, responsive shell behavior,
+ * and installed-mode states. PWA behavior is a state of this module rather
+ * than a late stylesheet that silently overrides unrelated modules.
+ */
 :root {
   --bg: #0a0c10;
   --panel: #12151b;

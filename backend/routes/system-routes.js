@@ -4,12 +4,12 @@ import { ApiError, sendError } from '../validation.js';
 /**
  * System routes — status, cookies, health check.
  * @param {import('express').Router} router
- * @param {Object} deps - { getSystemStatus, getQueueState, monitorState, startedAt, dataDir, downloadsDir, cookiesFile, fs }
+ * @param {Object} deps
  */
 export const createSystemRoutes = (router, deps) => {
   const {
     getSystemStatus,
-    getQueueState,
+    queue,
     monitorState,
     startedAt,
     dataDir,
@@ -26,7 +26,8 @@ export const createSystemRoutes = (router, deps) => {
           startedAt,
           dataDir,
           downloadsDir,
-          queueState: getQueueState(),
+          queueState: queue.state(),
+          queueSummary: await queue.summary(),
           monitorState: monitorState(),
         }),
       );

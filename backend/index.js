@@ -3,39 +3,16 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { initDb } from './database.js';
-import {
-  cancelJob,
-  clearCompletedJobs,
-  deleteJob,
-  enqueue,
-  getQueueState,
-  listQueueJobs,
-  pauseQueue,
-  processQueue,
-  readJobLogs,
-  readQueueSummary,
-  recoverInterruptedJobs,
-  resumeQueue,
-  retryJob,
-} from './queue.js';
-import { createChannelRegistry } from './channels.js';
+import { downloadQueue } from './queue.js';
+import { createMonitoredProfiles } from './channels.js';
 import { detectUrlType } from './identity.js';
-import { createMonitor } from './monitor.js';
-import { getPost, getPostMediaFiles, searchPosts } from './posts.js';
-import { sendPostMedia, sendPostMediaFile } from './archives.js';
 import { getSystemStatus } from './status.js';
 import {
   ApiError,
   parseDownloaderChoice,
-  parsePostsQuery,
-  parseQueueQuery,
-  parseId,
   requireBodyString,
-  sendError,
 } from './validation.js';
 import { logger } from './logger.js';
-import { ensurePostThumbnails } from './thumbnails.js';
 import { asyncRoute } from './middleware/async-handler.js';
 import { requestLogger } from './middleware/request-logger.js';
 import { globalErrorHandler } from './middleware/error-handler.js';
@@ -44,8 +21,8 @@ import { createPostRoutes } from './routes/post-routes.js';
 import { createQueueRoutes } from './routes/queue-routes.js';
 import { createSystemRoutes } from './routes/system-routes.js';
 import { createArchiveRoutes } from './routes/archive-routes.js';
-import { dbAll, dbGet, dbRun } from './database.js';
-import * as archiveService from './services/archive-service.js';
+import { initDb } from './database.js';
+import { archiveCatalog } from './archive-runtime.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -68,47 +45,29 @@ fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
 
 app.use('/media', express.static(DOWNLOADS_DIR));
 
-const channelRegistry = createChannelRegistry({ channelsFile: CHANNELS_FILE });
-const monitor = createMonitor({ channelRegistry, enqueue });
-
+const monitoredProfiles = createMonitoredProfiles({
+  channelsFile: CHANNELS_FILE,
+  queue: downloadQueue,
+});
 // Mount route modules
 app.use(
   '/api/channels',
-  createChannelRoutes(express.Router(), channelRegistry, enqueue),
+  createChannelRoutes(express.Router(), monitoredProfiles, downloadQueue),
 );
 app.use(
   '/api/posts',
-  createPostRoutes(express.Router(), {
-    searchPosts,
-    getPost,
-    getPostMediaFiles,
-    sendPostMedia,
-    sendPostMediaFile,
-    ensurePostThumbnails,
-    downloadsDir: DOWNLOADS_DIR,
-    fs,
-    path,
-  }),
+  createPostRoutes(express.Router(), archiveCatalog),
 );
 app.use(
   '/api/queue',
-  createQueueRoutes(express.Router(), {
-    listQueueJobs,
-    readJobLogs,
-    cancelJob,
-    retryJob,
-    deleteJob,
-    clearCompletedJobs,
-    pauseQueue,
-    resumeQueue,
-  }),
+  createQueueRoutes(express.Router(), downloadQueue),
 );
 app.use(
   '/api',
   createSystemRoutes(express.Router(), {
     getSystemStatus,
-    getQueueState,
-    monitorState: monitor.state,
+    queue: downloadQueue,
+    monitorState: monitoredProfiles.monitorState,
     startedAt,
     dataDir: DATA_DIR,
     downloadsDir: DOWNLOADS_DIR,
@@ -118,14 +77,7 @@ app.use(
 );
 app.use(
   '/api/archive',
-  createArchiveRoutes(express.Router(), {
-    dbAll,
-    dbGet,
-    dbRun,
-    archiveService,
-    downloadsDir: DOWNLOADS_DIR,
-    getPost,
-  }),
+  createArchiveRoutes(express.Router(), archiveCatalog),
 );
 
 // Download URL endpoint
@@ -145,7 +97,7 @@ app.post(
         );
       }
     })();
-    const job = await enqueue(target.url, target.type);
+    const job = await downloadQueue.enqueue(target.url, target.type);
     res.status(job.created ? 201 : 200).json({
       message: job.requeued
         ? 'URL requeued for download'
@@ -177,8 +129,8 @@ app.use(globalErrorHandler);
 
 const startApp = async () => {
   await initDb();
-  await channelRegistry.syncFromFile();
-  await recoverInterruptedJobs();
+  await monitoredProfiles.syncFromFile();
+  await downloadQueue.recoverInterrupted();
 
   app.listen(PORT, '0.0.0.0', () => {
     logger.info('server started', {
@@ -188,11 +140,11 @@ const startApp = async () => {
     });
   });
 
-  monitor
-    .runOnce()
+  monitoredProfiles
+    .runMonitor()
     .catch((error) => logger.error('initial monitor failed', { error }));
-  processQueue();
-  monitor.start();
+  downloadQueue.process();
+  monitoredProfiles.startMonitor();
 };
 
 startApp().catch((error) => {

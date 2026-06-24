@@ -1,43 +1,25 @@
 import { asyncRoute } from '../middleware/async-handler.js';
-import { ApiError, parsePostsQuery, parseId } from '../validation.js';
+import { ApiError, parsePostsQuery } from '../validation.js';
 
 /**
- * Post routes.
+ * Archive Item route adapters.
  * @param {import('express').Router} router
- * @param {Object} deps - { searchPosts, getPost, getPostMediaFiles, sendPostMedia, sendPostMediaFile, ensurePostThumbnails, downloadsDir, fs, path }
+ * @param {ReturnType<import('../archive-catalog.js').createArchiveCatalog>} archiveCatalog
  */
-export const createPostRoutes = (router, deps) => {
-  const {
-    searchPosts,
-    getPost,
-    getPostMediaFiles,
-    sendPostMedia,
-    sendPostMediaFile,
-    ensurePostThumbnails,
-    downloadsDir,
-    fs,
-    path,
-  } = deps;
+export const createPostRoutes = (router, archiveCatalog) => {
 
   router.get(
     '/',
     asyncRoute(async (req, res) => {
-      const result = await searchPosts(parsePostsQuery(req.query));
-      res.json({
-        ...result,
-        posts: await ensurePostThumbnails(result.posts, downloadsDir),
-      });
+      res.json(await archiveCatalog.search(parsePostsQuery(req.query)));
     }),
   );
 
   router.get(
     '/:id/download',
     asyncRoute(async (req, res) => {
-      await sendPostMedia({
-        res,
-        downloadsDir,
-        post: await getPost(req.params.id),
-      });
+      const file = await archiveCatalog.resolveDownload(req.params.id);
+      res.download(file.path, file.name);
     }),
   );
 
@@ -52,28 +34,18 @@ export const createPostRoutes = (router, deps) => {
           'File index must be zero or greater',
         );
       }
-      await sendPostMediaFile({
-        res,
-        downloadsDir,
-        post: await getPost(req.params.id),
+      const file = await archiveCatalog.resolveDownload(
+        req.params.id,
         index,
-      });
+      );
+      res.download(file.path, file.name);
     }),
   );
 
   router.get(
     '/:id',
     asyncRoute(async (req, res) => {
-      const post = await getPost(req.params.id);
-      if (!post) throw new ApiError(404, 'NOT_FOUND', 'Post not found');
-      const media = await getPostMediaFiles(post, downloadsDir, fs, path);
-      res.json({
-        post,
-        media,
-        images: media
-          .filter((item) => item.kind === 'image')
-          .map((item) => item.name),
-      });
+      res.json(await archiveCatalog.detail(req.params.id));
     }),
   );
 

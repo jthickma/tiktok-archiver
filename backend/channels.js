@@ -1,18 +1,39 @@
 import fs from 'fs';
 import path from 'path';
-import { dbAll, dbGet, dbRun } from './database.js';
+import { database as defaultDatabase } from './database.js';
 import { normalizeProfileUrl, requireTikTokUsername } from './identity.js';
 import { logger } from './logger.js';
 import {
   getChannelById,
+  getMonitoredChannels,
   upsertChannel,
   setMonitored,
+  updateLastChecked,
   updateChannelUrl,
   getMonitoredUrls,
   listChannels as repoListChannels,
 } from './repositories/channel-repository.js';
 
-export const createChannelRegistry = ({ channelsFile }) => {
+const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * Deep monitored-profiles module.
+ *
+ * Owns reconciliation between channels.txt and SQLite, profile mutations,
+ * scheduled scan requests, and monitor timing. The text file and SQLite remain
+ * two intentional adapters to the same operational state.
+ */
+export const createMonitoredProfiles = ({
+  channelsFile,
+  database = defaultDatabase,
+  queue,
+  intervalMs = SIX_HOURS_MS,
+}) => {
+  const { all, get, run } = database;
+  let lastRunAt = null;
+  let nextRunAt = null;
+  let timer = null;
+
   const ensureFile = () => {
     const dir = path.dirname(channelsFile);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -36,11 +57,11 @@ export const createChannelRegistry = ({ channelsFile }) => {
         const id = requireTikTokUsername(url);
         fileChannelIds.push(id);
 
-        const existing = await getChannelById(dbGet, id);
+        const existing = await getChannelById(get, id);
         if (existing) {
-          await updateChannelUrl(dbRun, id, url);
+          await updateChannelUrl(run, id, url);
         } else {
-          await upsertChannel(dbRun, {
+          await upsertChannel(run, {
             id,
             username: id.replace(/^@/, ''),
             url,
@@ -57,12 +78,12 @@ export const createChannelRegistry = ({ channelsFile }) => {
       }
     }
 
-    const dbMonitored = await dbAll(
+    const dbMonitored = await all(
       'SELECT id FROM channels WHERE is_monitored = 1',
     );
     for (const channel of dbMonitored) {
       if (!fileChannelIds.includes(channel.id)) {
-        await setMonitored(dbRun, channel.id, 0);
+        await setMonitored(run, channel.id, 0);
         logger.info('channel unmonitored from file sync', {
           channel_id: channel.id,
         });
@@ -72,24 +93,23 @@ export const createChannelRegistry = ({ channelsFile }) => {
 
   const syncToFile = async () => {
     ensureFile();
-    const monitored = await getMonitoredUrls(dbAll);
-    fs.writeFileSync(
-      channelsFile,
-      `${monitored.map((channel) => channel.url).join('\n')}\n`,
-      'utf8',
-    );
+    const monitored = await getMonitoredUrls(all);
+    const nextContent = `${monitored.map((channel) => channel.url).join('\n')}\n`;
+    const temporaryFile = `${channelsFile}.${process.pid}.tmp`;
+    fs.writeFileSync(temporaryFile, nextContent, 'utf8');
+    fs.renameSync(temporaryFile, channelsFile);
   };
 
-  const listChannels = async () => repoListChannels(dbAll);
+  const listChannels = async () => repoListChannels(all);
 
   const monitorProfile = async (input) => {
     const url = normalizeProfileUrl(input);
     const id = requireTikTokUsername(url);
-    const existing = await getChannelById(dbGet, id);
+    const existing = await getChannelById(get, id);
     if (existing) {
-      await updateChannelUrl(dbRun, id, url);
+      await updateChannelUrl(run, id, url);
     } else {
-      await upsertChannel(dbRun, {
+      await upsertChannel(run, {
         id,
         username: id.replace(/^@/, ''),
         url,
@@ -102,15 +122,64 @@ export const createChannelRegistry = ({ channelsFile }) => {
   };
 
   const stopMonitoring = async (id) => {
-    await setMonitored(dbRun, id, 0);
+    await setMonitored(run, id, 0);
     await syncToFile();
   };
 
-  return {
+  const runMonitor = async () => {
+    if (!queue) throw new Error('Monitored profiles require a queue');
+    lastRunAt = new Date().toISOString();
+    nextRunAt = new Date(Date.now() + intervalMs).toISOString();
+    logger.info('monitor scan started');
+    await syncFromFile();
+    const monitored = await getMonitoredChannels(all);
+    for (const channel of monitored) {
+      await queue.enqueue(channel.url, 'channel');
+      await updateLastChecked(run, channel.id);
+    }
+    logger.info('monitor scan finished', { channel_count: monitored.length });
+  };
+
+  const startMonitor = () => {
+    if (timer) return;
+    nextRunAt = new Date(Date.now() + intervalMs).toISOString();
+    timer = setInterval(() => {
+      runMonitor().catch((error) =>
+        logger.error('scheduled monitor failed', { error }),
+      );
+    }, intervalMs);
+    timer.unref?.();
+  };
+
+  const stopMonitor = () => {
+    if (!timer) return;
+    clearInterval(timer);
+    timer = null;
+    nextRunAt = null;
+  };
+
+  const monitorState = () => ({
+    lastRunAt,
+    nextRunAt,
+    intervalMs,
+    running: Boolean(timer),
+  });
+
+  return Object.freeze({
     syncFromFile,
     syncToFile,
     listChannels,
     monitorProfile,
     stopMonitoring,
-  };
+    runMonitor,
+    startMonitor,
+    stopMonitor,
+    monitorState,
+  });
 };
+
+/**
+ * Compatibility constructor for older callers that only need registry work.
+ */
+export const createChannelRegistry = ({ channelsFile }) =>
+  createMonitoredProfiles({ channelsFile });

@@ -1,6 +1,5 @@
 import fs from 'fs';
 import { spawn } from 'child_process';
-import { dbAll } from './database.js';
 
 const TOOL_VERSION_ARGS = {
   ffmpeg: ['-version'],
@@ -38,27 +37,14 @@ const diskFree = async (dir) => {
   }
 };
 
-const normalizeCounts = (rows) => {
-  const counts = {
-    pending: 0,
-    downloading: 0,
-    completed: 0,
-    failed: 0,
-    cancelled: 0
-  };
-
-  for (const row of rows) {
-    counts[row.status] = row.count;
-  }
-
-  return counts;
-};
-
-export const getSystemStatus = async ({ startedAt, dataDir, downloadsDir, queueState, monitorState }) => {
-  const rows = await dbAll('SELECT status, COUNT(*) as count FROM download_jobs GROUP BY status');
-  const queueCounts = normalizeCounts(rows);
-  const activeCount = queueCounts.pending + queueCounts.downloading;
-
+export const getSystemStatus = async ({
+  startedAt,
+  dataDir,
+  downloadsDir,
+  queueState,
+  queueSummary,
+  monitorState,
+}) => {
   const [ytDlp, galleryDl, ffmpeg, disk] = await Promise.all([
     commandAvailable('yt-dlp'),
     commandAvailable('gallery-dl'),
@@ -73,10 +59,7 @@ export const getSystemStatus = async ({ startedAt, dataDir, downloadsDir, queueS
     },
     queue: {
       ...queueState,
-      counts: queueCounts,
-      activeCount,
-      totalCount: Object.values(queueCounts).reduce((total, count) => total + count, 0),
-      problemCount: queueCounts.failed
+      ...queueSummary,
     },
     monitor: monitorState,
     tools: {

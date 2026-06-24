@@ -2,40 +2,30 @@ import { asyncRoute } from '../middleware/async-handler.js';
 import { parseQueueQuery, parseId } from '../validation.js';
 
 /**
- * Queue routes.
+ * Download Queue route adapters.
  * @param {import('express').Router} router
- * @param {Object} deps - { listQueueJobs, readJobLogs, cancelJob, retryJob, deleteJob, clearCompletedJobs, pauseQueue, resumeQueue }
+ * @param {ReturnType<import('../download-queue.js').createDownloadQueue>} queue
  */
-export const createQueueRoutes = (router, deps) => {
-  const {
-    listQueueJobs,
-    readJobLogs,
-    cancelJob,
-    retryJob,
-    deleteJob,
-    clearCompletedJobs,
-    pauseQueue,
-    resumeQueue,
-  } = deps;
+export const createQueueRoutes = (router, queue) => {
 
   router.get(
     '/',
     asyncRoute(async (req, res) => {
-      res.json(await listQueueJobs(parseQueueQuery(req.query)));
+      res.json(await queue.list(parseQueueQuery(req.query)));
     }),
   );
 
   router.get(
     '/:id/logs',
     asyncRoute(async (req, res) => {
-      res.json(await readJobLogs(parseId(req.params.id)));
+      res.json(await queue.logs(parseId(req.params.id)));
     }),
   );
 
   router.post(
     '/:id/cancel',
     asyncRoute(async (req, res) => {
-      await cancelJob(parseId(req.params.id));
+      await queue.cancel(parseId(req.params.id));
       res.json({ message: 'Job cancelled' });
     }),
   );
@@ -43,7 +33,7 @@ export const createQueueRoutes = (router, deps) => {
   router.post(
     '/:id/retry',
     asyncRoute(async (req, res) => {
-      await retryJob(parseId(req.params.id));
+      await queue.retry(parseId(req.params.id));
       res.json({ message: 'Job requeued' });
     }),
   );
@@ -51,7 +41,7 @@ export const createQueueRoutes = (router, deps) => {
   router.delete(
     '/history/completed',
     asyncRoute(async (req, res) => {
-      const result = await clearCompletedJobs();
+      const result = await queue.clearCompleted();
       res.json({
         message: 'Completed queue entries cleared',
         count: result.changes,
@@ -62,7 +52,7 @@ export const createQueueRoutes = (router, deps) => {
   router.delete(
     '/:id',
     asyncRoute(async (req, res) => {
-      await deleteJob(parseId(req.params.id));
+      await queue.remove(parseId(req.params.id));
       res.json({ message: 'Job deleted' });
     }),
   );
@@ -70,7 +60,7 @@ export const createQueueRoutes = (router, deps) => {
   router.post(
     '/pause',
     asyncRoute(async (req, res) => {
-      pauseQueue();
+      queue.pause();
       res.json({ message: 'Queue paused' });
     }),
   );
@@ -78,7 +68,7 @@ export const createQueueRoutes = (router, deps) => {
   router.post(
     '/resume',
     asyncRoute(async (req, res) => {
-      resumeQueue();
+      queue.resume();
       res.json({ message: 'Queue resumed' });
     }),
   );

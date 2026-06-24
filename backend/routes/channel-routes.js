@@ -4,13 +4,14 @@ import { requireBodyString } from '../validation.js';
 /**
  * Channel routes.
  * @param {import('express').Router} router
- * @param {Object} channelRegistry
+ * @param {ReturnType<import('../channels.js').createMonitoredProfiles>} monitoredProfiles
+ * @param {Object} queue
  */
-export const createChannelRoutes = (router, channelRegistry, enqueue) => {
+export const createChannelRoutes = (router, monitoredProfiles, queue) => {
   router.get(
     '/',
     asyncRoute(async (req, res) => {
-      res.json(await channelRegistry.listChannels());
+      res.json(await monitoredProfiles.listChannels());
     }),
   );
 
@@ -18,8 +19,8 @@ export const createChannelRoutes = (router, channelRegistry, enqueue) => {
     '/',
     asyncRoute(async (req, res) => {
       const url = requireBodyString(req.body, 'url');
-      const channel = await channelRegistry.monitorProfile(url);
-      const job = await enqueue(channel.url, 'channel');
+      const channel = await monitoredProfiles.monitorProfile(url);
+      const job = await queue.enqueue(channel.url, 'channel');
       res.status(job.created ? 201 : 200).json({
         message: job.requeued
           ? 'Profile monitoring requeued'
@@ -35,7 +36,7 @@ export const createChannelRoutes = (router, channelRegistry, enqueue) => {
   router.delete(
     '/:id',
     asyncRoute(async (req, res) => {
-      await channelRegistry.stopMonitoring(req.params.id);
+      await monitoredProfiles.stopMonitoring(req.params.id);
       res.json({ message: `Stopped monitoring channel: ${req.params.id}` });
     }),
   );

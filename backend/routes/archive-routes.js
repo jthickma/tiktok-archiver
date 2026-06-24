@@ -1,27 +1,23 @@
 import { asyncRoute } from '../middleware/async-handler.js';
-import { ApiError } from '../validation.js';
 
 /**
- * Archive routes — stats, orphan cleanup, export.
+ * Archive maintenance route adapters.
  * @param {import('express').Router} router
- * @param {Object} deps - { dbAll, dbGet, dbRun, archiveService, downloadsDir, getPost }
+ * @param {ReturnType<import('../archive-catalog.js').createArchiveCatalog>} archiveCatalog
  */
-export const createArchiveRoutes = (router, deps) => {
-  const { dbAll, dbGet, dbRun, archiveService, downloadsDir, getPost } = deps;
+export const createArchiveRoutes = (router, archiveCatalog) => {
 
   router.get(
     '/stats',
     asyncRoute(async (req, res) => {
-      const stats = await archiveService.getArchiveStats(dbAll, dbGet);
-      const storage = await archiveService.getStorageBreakdown(downloadsDir);
-      res.json({ ...stats, storage });
+      res.json(await archiveCatalog.stats());
     }),
   );
 
   router.get(
     '/orphans',
     asyncRoute(async (req, res) => {
-      const orphans = await archiveService.findOrphanFiles(downloadsDir, dbAll);
+      const orphans = await archiveCatalog.orphans();
       res.json({ orphans, count: orphans.length });
     }),
   );
@@ -29,17 +25,14 @@ export const createArchiveRoutes = (router, deps) => {
   router.post(
     '/orphans/cleanup',
     asyncRoute(async (req, res) => {
-      const orphans = await archiveService.findOrphanFiles(downloadsDir, dbAll);
-      const result = await archiveService.cleanupOrphans(orphans, downloadsDir);
-      res.json(result);
+      res.json(await archiveCatalog.cleanupOrphans());
     }),
   );
 
   router.post(
     '/deduplicate',
     asyncRoute(async (req, res) => {
-      const result = await archiveService.deduplicatePosts(dbAll, dbGet, dbRun);
-      res.json(result);
+      res.json(await archiveCatalog.deduplicate());
     }),
   );
 

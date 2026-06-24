@@ -47,6 +47,18 @@ export const dbAll = (sql, params = []) => {
   });
 };
 
+/**
+ * Stable database adapter used by deep modules.
+ *
+ * Passing one adapter keeps SQL mechanics behind a single seam instead of
+ * threading three unrelated helper functions through every call.
+ */
+export const database = Object.freeze({
+  run: dbRun,
+  get: dbGet,
+  all: dbAll,
+});
+
 const tableColumns = async (tableName) => {
   const columns = await dbAll(`PRAGMA table_info(${tableName})`);
   return new Set(columns.map((column) => column.name));

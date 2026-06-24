@@ -262,3 +262,8 @@
 .queue-toolbar {
   margin-bottom: 12px;
 }
+@media (max-width: 1100px) {
+  .queue-layout.with-console {
+    grid-template-columns: 1fr;
+  }
+}
