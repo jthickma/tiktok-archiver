@@ -8,6 +8,7 @@
 @import './styles/queue.css';
 @import './styles/components.css';
 @import './styles/media-viewer.css';
+@import './styles/pwa.css';
 
 /*
  * Responsive overrides — split from media-viewer.css for clarity.

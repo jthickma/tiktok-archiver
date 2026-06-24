@@ -63,11 +63,13 @@ The Docker image installs `python3`, `pip`, `ffmpeg`, `yt-dlp`, and `gallery-dl`
 docker compose up --build
 ```
 
-The app is exposed on:
+The app is exposed on the standard application port:
 
 ```text
-http://localhost:18080
+http://localhost:8080
 ```
+
+Port `18080` remains available as a compatibility alias.
 
 Persistent runtime files are mounted from the host:
 

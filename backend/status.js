@@ -2,11 +2,19 @@ import fs from 'fs';
 import { spawn } from 'child_process';
 import { dbAll } from './database.js';
 
-const commandAvailable = (command) => new Promise((resolve) => {
-  const proc = spawn(command, ['--version']);
-  proc.on('error', () => resolve(false));
-  proc.on('close', (code) => resolve(code === 0));
-});
+const TOOL_VERSION_ARGS = {
+  ffmpeg: ['-version'],
+};
+
+export const commandAvailable = (command, spawnCommand = spawn) =>
+  new Promise((resolve) => {
+    const proc = spawnCommand(
+      command,
+      TOOL_VERSION_ARGS[command] || ['--version'],
+    );
+    proc.on('error', () => resolve(false));
+    proc.on('close', (code) => resolve(code === 0));
+  });
 
 const checkWritable = (dir) => {
   try {

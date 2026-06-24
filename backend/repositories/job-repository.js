@@ -485,6 +485,18 @@ export const getDueJob = (dbGet) =>
   );
 
 /**
+ * Get the earliest delayed pending job so the queue can schedule a wake-up.
+ * @param {Function} dbGet
+ * @returns {Promise<Object|null>}
+ */
+export const getNextScheduledJob = (dbGet) =>
+  dbGet(
+    `SELECT id, next_attempt_at FROM download_jobs
+     WHERE status = 'pending' AND next_attempt_at IS NOT NULL
+     ORDER BY next_attempt_at ASC LIMIT 1`,
+  );
+
+/**
  * Increment the attempt count for a job.
  * @param {Function} dbRun
  * @param {number} id
@@ -575,6 +587,8 @@ export const classifyError = (error) => {
   if (/cancelled|canceled/i.test(message)) return 'cancelled';
   if (/invalid|unsupported|validation|must include|only tiktok/i.test(message))
     return 'validation';
+  if (/account is private|HTTP Error 404|not found|unavailable/i.test(message))
+    return 'unavailable';
   if (/rate|429|too many requests/i.test(message)) return 'rate_limit';
   if (/timed out|timeout|network|ECONN|ENOTFOUND|ETIMEDOUT/i.test(message))
     return 'network';
@@ -587,4 +601,4 @@ export const classifyError = (error) => {
  * @returns {boolean}
  */
 export const isRetryable = (errorClass) =>
-  !['validation', 'cancelled'].includes(errorClass);
+  !['validation', 'cancelled', 'unavailable'].includes(errorClass);

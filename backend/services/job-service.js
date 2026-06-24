@@ -4,6 +4,7 @@
  */
 import { logger } from '../logger.js';
 import { ApiError } from '../validation.js';
+import { requireTikTokUsername } from '../identity.js';
 import {
   enqueueJob,
   updateJobStatus,
@@ -18,6 +19,7 @@ import {
   getQueueSummary,
   listJobs,
   getDueJob,
+  getNextScheduledJob,
   incrementAttempt,
   scheduleRetry,
   markJobFailed,
@@ -27,7 +29,30 @@ import {
 
 let isProcessing = false;
 let isPaused = false;
+let retryTimer = null;
 const activeProcesses = new Map();
+
+const clearRetryTimer = () => {
+  if (!retryTimer) return;
+  clearTimeout(retryTimer);
+  retryTimer = null;
+};
+
+const scheduleNextRun = async (dbRun, dbGet, dbAll) => {
+  clearRetryTimer();
+  const nextJob = await getNextScheduledJob(dbGet);
+  if (!nextJob?.next_attempt_at) return;
+
+  const delay = Math.max(
+    0,
+    new Date(nextJob.next_attempt_at).getTime() - Date.now(),
+  );
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    processQueue(dbRun, dbGet, dbAll);
+  }, Math.min(delay, 2_147_483_647));
+  retryTimer.unref?.();
+};
 
 const jobTypeLabel = (type) => {
   if (type === 'channel') return 'profile scan';
@@ -156,6 +181,7 @@ export const clearCompleted = async (dbRun) => repoClearCompletedJobs(dbRun);
  */
 export const processQueue = async (dbRun, dbGet, dbAll) => {
   if (isProcessing || isPaused) return;
+  clearRetryTimer();
   isProcessing = true;
 
   try {
@@ -185,8 +211,7 @@ export const processQueue = async (dbRun, dbGet, dbAll) => {
         };
 
         if (job.type === 'channel') {
-          const { scanProfile, requireTikTokUsername } =
-            await import('../downloader.js');
+          const { scanProfile } = await import('../downloader.js');
           await updateJobStatus(
             dbRun,
             job.id,
@@ -299,7 +324,11 @@ export const processQueue = async (dbRun, dbGet, dbAll) => {
     isProcessing = false;
     if (!isPaused) {
       const dueJob = await getDueJob(dbGet);
-      if (dueJob) processQueue(dbRun, dbGet, dbAll);
+      if (dueJob) {
+        processQueue(dbRun, dbGet, dbAll);
+      } else {
+        await scheduleNextRun(dbRun, dbGet, dbAll);
+      }
     }
   }
 };

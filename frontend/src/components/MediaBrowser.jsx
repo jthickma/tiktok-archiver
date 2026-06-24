@@ -24,6 +24,7 @@ export default function MediaBrowser() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const totalPages = Math.max(1, Math.ceil(total / limit));
   const activeMedia = activePost ? mediaFiles[slideIndex] : null;
@@ -195,71 +196,92 @@ export default function MediaBrowser() {
       {error && <div className="alert danger">{error}</div>}
 
       <div className="toolbar">
-        <input
-          className="text-input search-input"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search title, caption, or profile"
-        />
-        <select className="select-input" value={sort} onChange={(event) => setSort(event.target.value)}>
-          <option value="upload_date">Upload date</option>
-          <option value="downloaded_at">Download date</option>
-          <option value="profile">Profile</option>
-          <option value="type">Type</option>
-          <option value="title">Title</option>
-        </select>
-        <button type="button" className="icon-btn" onClick={() => setDirection(direction === 'desc' ? 'asc' : 'desc')} title="Toggle sort direction">
-          {direction === 'desc' ? 'Desc' : 'Asc'}
-        </button>
-        <select className="select-input" value={limit} onChange={(event) => setLimit(Number(event.target.value))}>
-          <option value={24}>24</option>
-          <option value={36}>36</option>
-          <option value={60}>60</option>
-          <option value={100}>100</option>
-        </select>
-      </div>
-
-      <div className="filter-dock">
-        <div className="segmented-control">
-          {['', 'video', 'slideshow', 'image', 'gallery', 'audio'].map((type) => (
-            <button key={type || 'all'} type="button" className={selectedType === type ? 'active' : ''} onClick={() => setSelectedType(type)}>
-              {type || 'all'}
-            </button>
-          ))}
-        </div>
-        <label className="check-pill">
-          <input type="checkbox" checked={missingThumbnail} onChange={(event) => setMissingThumbnail(event.target.checked)} />
-          Missing thumbnail
+        <label className="archive-search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            <circle cx="11" cy="11" r="7" />
+            <path d="m20 20-4-4" />
+          </svg>
+          <input
+            className="text-input search-input"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search your archive"
+            aria-label="Search archive"
+          />
         </label>
-        <input className="date-input" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} aria-label="Start date" />
-        <input className="date-input" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} aria-label="End date" />
-        <div className="segmented-control">
-          {['dense', 'compact', 'wide'].map((mode) => (
-            <button key={mode} type="button" className={density === mode ? 'active' : ''} onClick={() => setDensity(mode)}>
-              {mode}
-            </button>
-          ))}
-        </div>
-        <button type="button" className="btn btn-secondary" onClick={clearFilters}>
-          Clear filters
+        <button
+          type="button"
+          className={`btn btn-secondary mobile-filter-toggle ${filtersOpen ? 'active' : ''}`}
+          onClick={() => setFiltersOpen((open) => !open)}
+          aria-expanded={filtersOpen}
+        >
+          Filters
+          {(selectedType || selectedChannels.length || dateFrom || dateTo || missingThumbnail) ? <span className="filter-count">•</span> : null}
         </button>
       </div>
 
-      <div className="profile-filter" aria-label="Profile filters">
-        {channels.map((channel) => (
-          <button
-            key={channel.id}
-            type="button"
-            className={selectedChannels.includes(channel.id) ? 'active' : ''}
-            onClick={() => toggleChannel(channel.id)}
-          >
-            @{channel.username}
+      <div className={`archive-filters ${filtersOpen ? 'open' : ''}`}>
+        <div className="filter-dock">
+          <div className="segmented-control media-type-filter">
+            {['', 'video', 'slideshow', 'image', 'gallery', 'audio'].map((type) => (
+              <button key={type || 'all'} type="button" className={selectedType === type ? 'active' : ''} onClick={() => setSelectedType(type)}>
+                {type || 'all'}
+              </button>
+            ))}
+          </div>
+          <select className="select-input" value={sort} onChange={(event) => setSort(event.target.value)} aria-label="Sort archive">
+            <option value="upload_date">Upload date</option>
+            <option value="downloaded_at">Download date</option>
+            <option value="profile">Profile</option>
+            <option value="type">Type</option>
+            <option value="title">Title</option>
+          </select>
+          <button type="button" className="icon-btn" onClick={() => setDirection(direction === 'desc' ? 'asc' : 'desc')} title="Toggle sort direction">
+            {direction === 'desc' ? 'Newest first' : 'Oldest first'}
           </button>
-        ))}
+          <select className="select-input" value={limit} onChange={(event) => setLimit(Number(event.target.value))} aria-label="Items per page">
+            <option value={24}>24 per page</option>
+            <option value={36}>36 per page</option>
+            <option value={60}>60 per page</option>
+            <option value={100}>100 per page</option>
+          </select>
+          <label className="check-pill">
+            <input type="checkbox" checked={missingThumbnail} onChange={(event) => setMissingThumbnail(event.target.checked)} />
+            Missing thumbnail
+          </label>
+          <input className="date-input" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} aria-label="Start date" />
+          <input className="date-input" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} aria-label="End date" />
+          <div className="segmented-control density-control">
+            {['dense', 'compact', 'wide'].map((mode) => (
+              <button key={mode} type="button" className={density === mode ? 'active' : ''} onClick={() => setDensity(mode)}>
+                {mode}
+              </button>
+            ))}
+          </div>
+          <button type="button" className="btn btn-secondary" onClick={clearFilters}>
+            Clear
+          </button>
+        </div>
+
+        {channels.length > 0 && (
+          <div className="profile-filter" aria-label="Profile filters">
+            {channels.map((channel) => (
+              <button
+                key={channel.id}
+                type="button"
+                className={selectedChannels.includes(channel.id) ? 'active' : ''}
+                onClick={() => toggleChannel(channel.id)}
+              >
+                @{channel.username}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="bulk-bar">
-        <span>{loading ? 'Loading archive...' : `${total} total / page ${page} of ${totalPages}`}</span>
+        <span>{loading ? 'Loading archive...' : `${total} items`}</span>
+        <span>Page {page} of {totalPages}</span>
       </div>
 
       {loading ? (
@@ -288,7 +310,11 @@ export default function MediaBrowser() {
                 </span>
               </button>
               {!isGroupedMedia(post.type) && (
-                <a className="card-download-btn visible" href={`/api/posts/${post.id}/download`} title="Download media" download>DL</a>
+                <a className="card-download-btn visible" href={`/api/posts/${post.id}/download`} title="Download media" aria-label="Download media" download>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                    <path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14" />
+                  </svg>
+                </a>
               )}
             </article>
           ))}

@@ -17,6 +17,7 @@ import {
   recoverInterruptedJobs,
   getQueueSummary,
   getDueJob,
+  getNextScheduledJob,
   incrementAttempt,
   scheduleRetry,
   markJobFailed,
@@ -338,6 +339,30 @@ describe('job-repository', () => {
     assert.ok(job.id);
   });
 
+  it('getNextScheduledJob returns the earliest delayed retry', async () => {
+    const first = new Date(Date.now() + 30_000).toISOString();
+    const second = new Date(Date.now() + 60_000).toISOString();
+    await dbRun('UPDATE download_jobs SET next_attempt_at = NULL');
+    const later = await enqueueJob(
+      dbRun,
+      dbGet,
+      'https://tiktok.com/@user/video/later-retry',
+      'post',
+    );
+    const earlier = await enqueueJob(
+      dbRun,
+      dbGet,
+      'https://tiktok.com/@user/video/earlier-retry',
+      'post',
+    );
+    await updateJob(dbRun, later.id, { next_attempt_at: second });
+    await updateJob(dbRun, earlier.id, { next_attempt_at: first });
+
+    const job = await getNextScheduledJob(dbGet);
+    assert.equal(job.id, earlier.id);
+    assert.equal(job.next_attempt_at, first);
+  });
+
   it('scheduleRetry sets next_attempt_at with backoff', async () => {
     await enqueueJob(
       dbRun,
@@ -371,6 +396,14 @@ describe('job-repository', () => {
       'rate_limit',
     );
     assert.equal(classifyError(new Error('ECONNREFUSED')), 'network');
+    assert.equal(
+      classifyError(new Error("This user's account is private")),
+      'unavailable',
+    );
+    assert.equal(
+      classifyError(new Error('HTTP Error 404: Not Found')),
+      'unavailable',
+    );
     assert.equal(classifyError(new Error('yt-dlp returned code 1')), 'tool');
   });
 
@@ -380,5 +413,6 @@ describe('job-repository', () => {
     assert.equal(isRetryable('tool'), true);
     assert.equal(isRetryable('validation'), false);
     assert.equal(isRetryable('cancelled'), false);
+    assert.equal(isRetryable('unavailable'), false);
   });
 });
