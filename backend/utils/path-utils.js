@@ -3,6 +3,10 @@ import path from 'path';
 /**
  * Resolve a relative path within a root directory, guarding against path traversal.
  * Returns the resolved absolute path, or null if the path escapes the root.
+ * 
+ * CRITICAL SECURITY GUARD: This function ensures that malicious users cannot craft 
+ * relative paths (e.g. "../../../etc/passwd") to escape the sandbox downloads directory
+ * and read or download arbitrary files from the server's filesystem.
  *
  * @param {string} root - The root/base directory (must be resolved beforehand)
  * @param {string} relativePath - The user-provided relative path

@@ -42,10 +42,17 @@ TikTok Archiver is a self-hosted media archive for TikTok profiles, individual v
 |-- downloads/          # Archived media, ignored by git
 |-- Dockerfile
 |-- docker-compose.yml
-|-- ARCHITECTURE.md
-`-- improvements.md
+`-- README.md
 ```
 
+## System Architecture
+
+The application is structured in standard decoupled layers:
+- **Routes / Controllers (`backend/routes/`)**: Adapter layer receiving HTTP requests, executing body/query validation, and delegating to services.
+- **Services (`backend/services/`)**: Business logic orchestration (e.g. `job-service`, `archive-service`). Decoupled from Express routers and direct DB handlers for testability.
+- **Repositories (`backend/repositories/`)**: Encapsulates raw SQL queries into clean async functions, providing data-access contracts.
+- **Database (`backend/database.js`)**: Configures the single SQLite connection pool, applies performance PRAGMAs (WAL mode, normal synchronous), executes migrations, and manages on-boot database healing checks.
+- **Downloader (`backend/downloader.js`)**: Executes external processes (`yt-dlp` and `gallery-dl`) with signal-based abort capabilities, error categorization, and automated browser-cookie injection.
 ## Runtime Requirements
 
 For local non-Docker use:
@@ -116,7 +123,12 @@ The backend uses these environment variables:
 | `PORT` | `8080` | Express listen port |
 | `DATA_DIR` | `./data` relative to repo root in local mode | Stores SQLite DB, `channels.txt`, and `cookies.txt` |
 | `DOWNLOADS_DIR` | `./downloads` relative to repo root in local mode | Stores downloaded media |
+| `DOWNLOAD_TIMEOUT_MS` | `1800000` (30 minutes) | Maximum duration a download job process can run before being terminated |
 | `NODE_ENV` | unset locally, `production` in Docker | Runtime mode |
+
+### SQLite Concurrency (WAL Mode)
+
+By default, the application runs SQLite with **Write-Ahead Logging (WAL)** enabled (`PRAGMA journal_mode = WAL;`). WAL mode allows simultaneous reads and writes to proceed concurrently, eliminating lock contentions between background scans, downloading queue workers, and user API actions.
 
 Copy `.env.example` when you want a documented starting point for container or reverse-proxy deployments.
 
@@ -206,7 +218,7 @@ On startup, any interrupted `downloading` jobs are recovered back to `pending` w
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/api/channels` | List channels with archive counts |
-| `GET` | `/api/status` | Server, queue, monitor, tool, and storage status |
+| `GET` | `/api/status` | Server, queue, monitor, tool, and storage status (Cached 60s) |
 | `POST` | `/api/channels` | Add or reactivate a monitored profile |
 | `DELETE` | `/api/channels/:id` | Stop monitoring a profile |
 | `GET` | `/api/posts` | List archived posts with pagination and filters |
@@ -224,6 +236,10 @@ On startup, any interrupted `downloading` jobs are recovered back to `pending` w
 | `DELETE` | `/api/queue/history/completed` | Clear completed and cancelled history |
 | `GET` | `/api/cookies` | Read stored cookies |
 | `POST` | `/api/cookies` | Save stored cookies |
+| `GET` | `/api/archive/stats` | Maintenance: Retrieve total count, size breakdown by channel and category |
+| `GET` | `/api/archive/orphans` | Maintenance: Scan downloads directory and locate orphaned files |
+| `POST` | `/api/archive/orphans/cleanup` | Maintenance: Delete orphaned files from disk to reclaim space |
+| `POST` | `/api/archive/deduplicate` | Maintenance: Identify and merge duplicate posts pointing to the same URL |
 
 ## Operational Notes
 

@@ -1,3 +1,19 @@
+/**
+ * Downloader Module
+ * 
+ * This module coordinates external download tools and fallback mechanisms to download 
+ * media from various platforms.
+ * 
+ * Download Fallback Chain:
+ * 1. For standard posts, we first attempt to download using `yt-dlp`.
+ * 2. If `yt-dlp` metadata extraction fails or download fails, we automatically fall back 
+ *    to `gallery-dl` via `downloadWithGalleryDl`.
+ * 3. Special Handlers:
+ *    - TikTok photo slideshows are automatically routed to `gallery-dl` with slideshow-specific prefixes.
+ *    - VSCO URLs are directly handled. If `gallery-dl` fails due to user-agent blocking or format errors, 
+ *      the module automatically executes `downloadVscoDirect` or `downloadVscoGalleryDirect` fallback methods, 
+ *      which perform scraping using curl_cffi / browser fetch emulation scripts to bypass rate/WAF blocks.
+ */
 import { spawn } from 'child_process';
 import crypto from 'crypto';
 import path from 'path';
@@ -236,62 +252,134 @@ const savePost = async (postData) => {
   );
 };
 
-const spawnTool = ({ command, args, label, postId, options, onStdout }) =>
-  new Promise((resolve, reject) => {
-    const proc = spawn(command, args);
+const DEFAULT_DOWNLOAD_TIMEOUT = 30 * 60 * 1000; // 30 minutes in milliseconds
+const DOWNLOAD_TIMEOUT_MS = process.env.DOWNLOAD_TIMEOUT_MS 
+  ? parseInt(process.env.DOWNLOAD_TIMEOUT_MS, 10) 
+  : DEFAULT_DOWNLOAD_TIMEOUT;
+
+/**
+ * Consolidate execution of external child processes with standard logging, timeout,
+ * and registration options.
+ */
+const runProcess = ({
+  command,
+  args,
+  label,
+  postId = null,
+  options = {},
+  env = {},
+  onStdout = null,
+  captureStdout = false,
+  timeoutMs = DOWNLOAD_TIMEOUT_MS,
+}) => {
+  return new Promise((resolve, reject) => {
+    const signal = options.signal;
+    if (signal?.aborted) {
+      return reject(new Error(`${label} execution was aborted before start.`));
+    }
+
+    const mergedEnv = { ...process.env, ...env };
+    const proc = spawn(command, args, { env: mergedEnv });
     registerProcess(proc, options);
+
+    let stdout = '';
     let stderr = '';
+    let timeoutTimer = null;
+    let aborted = false;
+
+    // Set up AbortSignal handling if provided
+    const abortHandler = () => {
+      aborted = true;
+      cleanupAndKill('SIGTERM');
+      reject(new Error(`${label} execution aborted via signal.`));
+    };
+    if (signal) {
+      signal.addEventListener('abort', abortHandler);
+    }
+
+    // Set up timeout handling
+    if (timeoutMs && timeoutMs > 0) {
+      timeoutTimer = setTimeout(() => {
+        aborted = true;
+        cleanupAndKill('SIGKILL');
+        const err = new Error(`${label} execution timed out after ${timeoutMs / 1000} seconds.`);
+        err.code = 'ETIMEDOUT';
+        reject(err);
+      }, timeoutMs);
+    }
+
+    const cleanupAndKill = (killSignal = 'SIGTERM') => {
+      if (timeoutTimer) {
+        clearTimeout(timeoutTimer);
+        timeoutTimer = null;
+      }
+      if (signal) {
+        signal.removeEventListener('abort', abortHandler);
+      }
+      if (!proc.killed) {
+        proc.kill(killSignal);
+      }
+    };
 
     proc.stdout.on('data', (data) => {
       const text = data.toString();
-      logger.info(`${label} stdout`, { post_id: postId, output: text.trim() });
-      onStdout?.(text);
+      if (captureStdout) {
+        stdout += text;
+      }
+      if (postId) {
+        logger.info(`${label} stdout`, { post_id: postId, output: text.trim() });
+      }
+      if (onStdout) {
+        onStdout(text);
+      }
     });
 
     proc.stderr.on('data', (data) => {
       const text = data.toString();
       stderr += text;
-      logger.warn(`${label} stderr`, { post_id: postId, output: text.trim() });
+      if (postId) {
+        logger.warn(`${label} stderr`, { post_id: postId, output: text.trim() });
+      }
     });
 
-    proc.on('error', (error) => reject(error));
+    proc.on('error', (error) => {
+      cleanupAndKill();
+      if (!aborted) reject(error);
+    });
 
-    proc.on('close', (code, signal) => {
+    proc.on('close', (code, procSignal) => {
+      cleanupAndKill();
+      if (aborted) return; // Promise already settled by timeout or abort
+
       if (code !== 0) {
-        reject(
-          new Error(
-            stderr.trim() ||
-              `${label} failed${signal ? ` (${signal})` : ` (code ${code})`}`,
-          ),
-        );
+        const errMsg = stderr.trim() || `${label} failed${procSignal ? ` (${procSignal})` : ` (code ${code})`}`;
+        reject(new Error(errMsg));
       } else {
-        resolve();
+        resolve(captureStdout ? stdout : undefined);
       }
     });
   });
+};
+
+const spawnTool = ({ command, args, label, postId, options, onStdout }) =>
+  runProcess({
+    command,
+    args,
+    label,
+    postId,
+    options,
+    onStdout,
+    captureStdout: false,
+  });
 
 const spawnCapture = ({ command, args, label, options, env = {} }) =>
-  new Promise((resolve, reject) => {
-    const proc = spawn(command, args, { env: { ...process.env, ...env } });
-    registerProcess(proc, options);
-    let stdout = '';
-    let stderr = '';
-
-    proc.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
-    proc.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    proc.on('error', (error) => reject(error));
-    proc.on('close', (code) => {
-      if (code !== 0) {
-        reject(new Error(stderr.trim() || `${label} failed (code ${code})`));
-      } else {
-        resolve(stdout);
-      }
-    });
+  runProcess({
+    command,
+    args,
+    label,
+    options,
+    env,
+    captureStdout: true,
   });
 
 const runVscoBrowserFetch = async ({
@@ -613,84 +701,49 @@ const downloadVscoGalleryDirect = async ({
 };
 
 // Fetch post metadata from yt-dlp without downloading
-export const getMetadata = (url, options = {}) => {
-  return new Promise((resolve, reject) => {
-    const args = ['--dump-json', '--skip-download', '--no-warnings'];
-    if (hasCookies()) args.push('--cookies', COOKIES_PATH);
-    args.push(url);
+export const getMetadata = async (url, options = {}) => {
+  const args = ['--dump-json', '--skip-download', '--no-warnings'];
+  if (hasCookies()) args.push('--cookies', COOKIES_PATH);
+  args.push(url);
 
-    const proc = spawn('yt-dlp', args);
-    registerProcess(proc, options);
-    let stdout = '';
-    let stderr = '';
-
-    proc.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
-    proc.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    proc.on('close', (code) => {
-      if (code !== 0) {
-        reject(
-          new Error(
-            stderr.trim() || `yt-dlp failed to get metadata (code ${code})`,
-          ),
-        );
-      } else {
-        try {
-          resolve(JSON.parse(stdout));
-        } catch (e) {
-          reject(new Error(`Failed to parse metadata JSON: ${e.message}`));
-        }
-      }
-    });
+  const stdout = await runProcess({
+    command: 'yt-dlp',
+    args,
+    label: 'yt-dlp metadata',
+    options,
+    captureStdout: true,
   });
+
+  try {
+    return JSON.parse(stdout);
+  } catch (e) {
+    throw new Error(`Failed to parse metadata JSON: ${e.message}`);
+  }
 };
 
 // Fetch all video entries in a profile (flat-playlist scan)
-export const scanProfile = (profileUrl, options = {}) => {
-  return new Promise((resolve, reject) => {
-    const args = ['--flat-playlist', '--dump-json', '--no-warnings'];
-    if (hasCookies()) args.push('--cookies', COOKIES_PATH);
-    args.push(profileUrl);
+export const scanProfile = async (profileUrl, options = {}) => {
+  const args = ['--flat-playlist', '--dump-json', '--no-warnings'];
+  if (hasCookies()) args.push('--cookies', COOKIES_PATH);
+  args.push(profileUrl);
 
-    const proc = spawn('yt-dlp', args);
-    registerProcess(proc, options);
-    let stdout = '';
-    let stderr = '';
-
-    proc.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
-    proc.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    proc.on('close', (code) => {
-      if (code !== 0) {
-        reject(
-          new Error(
-            stderr.trim() || `yt-dlp profile scan failed (code ${code})`,
-          ),
-        );
-      } else {
-        try {
-          const lines = stdout
-            .trim()
-            .split('\n')
-            .filter((line) => line.trim() !== '');
-          const entries = lines.map((line) => JSON.parse(line));
-          resolve(entries);
-        } catch (e) {
-          reject(
-            new Error(`Failed to parse profile scan output: ${e.message}`),
-          );
-        }
-      }
-    });
+  const stdout = await runProcess({
+    command: 'yt-dlp',
+    args,
+    label: 'yt-dlp profile scan',
+    options,
+    captureStdout: true,
   });
+
+  try {
+    const lines = stdout
+      .trim()
+      .split('\n')
+      .filter((line) => line.trim() !== '');
+    return lines.map((line) => JSON.parse(line));
+  } catch (e) {
+    throw new Error(`Failed to parse profile scan output: ${e.message}`);
+  }
 };
 
 const buildPostData = ({

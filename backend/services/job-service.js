@@ -24,6 +24,13 @@ import {
   classifyError,
   isRetryable,
 } from '../repositories/job-repository.js';
+import { getPostById } from '../repositories/post-repository.js';
+import {
+  scanProfile,
+  requireTikTokUsername,
+  downloadPost,
+  downloadWithGalleryDl,
+} from '../downloader.js';
 
 let isProcessing = false;
 let isPaused = false;
@@ -185,8 +192,6 @@ export const processQueue = async (dbRun, dbGet, dbAll) => {
         };
 
         if (job.type === 'channel') {
-          const { scanProfile, requireTikTokUsername } =
-            await import('../downloader.js');
           await updateJobStatus(
             dbRun,
             job.id,
@@ -208,18 +213,12 @@ export const processQueue = async (dbRun, dbGet, dbAll) => {
           for (const entry of entries) {
             const postId = entry.id;
             if (!postId) continue;
-            const postExists = await dbGet(
-              'SELECT id FROM posts WHERE id = ?',
-              [postId],
-            );
+            const postExists = await getPostById(dbGet, postId);
             if (!postExists) {
               const postUrl =
                 entry.url ||
                 `https://www.tiktok.com/@${username.replace(/^@/, '')}/video/${postId}`;
-              await dbRun(
-                `INSERT OR IGNORE INTO download_jobs (url, type, status, created_at) VALUES (?, ?, ?, ?)`,
-                [postUrl, 'post', 'pending', new Date().toISOString()],
-              );
+              await enqueueJob(dbRun, dbGet, postUrl, 'post');
               newPostsCount++;
             }
           }
@@ -234,8 +233,6 @@ export const processQueue = async (dbRun, dbGet, dbAll) => {
             `Scan complete. Found ${entries.length} total posts. Added ${newPostsCount} new posts.`,
           );
         } else if (job.type === 'post' || job.type === 'gallery-dl') {
-          const { downloadPost, downloadWithGalleryDl } =
-            await import('../downloader.js');
           const downloader =
             job.type === 'gallery-dl' ? downloadWithGalleryDl : downloadPost;
           await downloader(

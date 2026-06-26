@@ -63,6 +63,12 @@ const addColumnIfMissing = async (tableName, columnName, definition) => {
 export const initDb = async () => {
   logger.info('initializing sqlite database', { path: DB_PATH });
 
+  // Apply performance and concurrency tuning PRAGMAs
+  await dbRun('PRAGMA journal_mode = WAL');
+  await dbRun('PRAGMA synchronous = NORMAL');
+  await dbRun('PRAGMA foreign_keys = ON');
+  await dbRun('PRAGMA busy_timeout = 5000');
+
   await dbRun(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       version TEXT PRIMARY KEY,
@@ -167,7 +173,14 @@ const parseMetadata = (metadataJson) => {
 export const healDatabase = async () => {
   logger.info('database healing check started');
   try {
-    // 1. Fetch all posts
+    // Start transaction for DB integrity and massive performance boost
+    await dbRun('BEGIN TRANSACTION');
+
+    // 1. Fetch all channels into memory to avoid per-post SELECTs
+    const channelsList = await dbAll('SELECT * FROM channels');
+    const channelMap = new Map(channelsList.map((c) => [c.id, c]));
+
+    // Fetch all posts
     const posts = await dbAll('SELECT id, channel_id, url, file_path, thumbnail_path, metadata_json FROM posts');
     logger.info('database healing posts scanned', { count: posts.length });
 
@@ -177,34 +190,48 @@ export const healDatabase = async () => {
       if (correctChannelId && correctChannelId !== post.channel_id) {
         logger.warn('post linked to incorrect channel', { post_id: post.id, channel_id: post.channel_id, correct_channel_id: correctChannelId });
         
-        // Retrieve details from incorrect channel if it exists
-        const oldChannel = await dbGet('SELECT * FROM channels WHERE id = ?', [post.channel_id]);
+        // Retrieve details from incorrect channel if it exists in memory map
+        const oldChannel = channelMap.get(post.channel_id);
+        const correctChannelExists = channelMap.has(correctChannelId);
         
-        // Ensure correct channel exists
-        const correctChannelExists = await dbGet('SELECT * FROM channels WHERE id = ?', [correctChannelId]);
         if (!correctChannelExists) {
           const isMonitored = oldChannel ? oldChannel.is_monitored : 0;
           const lastChecked = oldChannel ? oldChannel.last_checked_at : null;
+          const createdAt = oldChannel ? oldChannel.created_at : new Date().toISOString();
+          
           await dbRun(
             'INSERT INTO channels (id, username, url, created_at, last_checked_at, is_monitored) VALUES (?, ?, ?, ?, ?, ?)',
             [
               correctChannelId, 
               correctChannelId.replace(/^@/, ''), 
               `https://www.tiktok.com/${correctChannelId}`, 
-              oldChannel ? oldChannel.created_at : new Date().toISOString(),
+              createdAt,
               lastChecked,
               isMonitored
             ]
           );
+          
+          const newChan = {
+            id: correctChannelId,
+            username: correctChannelId.replace(/^@/, ''),
+            url: `https://www.tiktok.com/${correctChannelId}`,
+            created_at: createdAt,
+            last_checked_at: lastChecked,
+            is_monitored: isMonitored
+          };
+          channelMap.set(correctChannelId, newChan);
           logger.info('database healing created channel', { channel_id: correctChannelId });
         } else if (oldChannel) {
+          const correctChannel = channelMap.get(correctChannelId);
           // If old channel was monitored, make sure correct channel is monitored too
-          if (oldChannel.is_monitored === 1) {
+          if (oldChannel.is_monitored === 1 && correctChannel.is_monitored !== 1) {
             await dbRun('UPDATE channels SET is_monitored = 1 WHERE id = ?', [correctChannelId]);
+            correctChannel.is_monitored = 1;
           }
           // If old channel has scan history and correct channel doesn't, copy last_checked_at
-          if (oldChannel.last_checked_at && !correctChannelExists.last_checked_at) {
+          if (oldChannel.last_checked_at && !correctChannel.last_checked_at) {
             await dbRun('UPDATE channels SET last_checked_at = ? WHERE id = ?', [oldChannel.last_checked_at, correctChannelId]);
+            correctChannel.last_checked_at = oldChannel.last_checked_at;
           }
         }
 
@@ -217,20 +244,25 @@ export const healDatabase = async () => {
     // 2. Clean up duplicate/incorrect channels
     // Any channel whose ID starts with '@' followed only by digits (numeric ID) and has 0 posts
     // can be safely removed.
-    const allChannels = await dbAll('SELECT id FROM channels');
-    for (const chan of allChannels) {
-      const isNumeric = /^@\d+$/.test(chan.id);
+    
+    // Query post count grouped by channel in a single aggregate query to avoid loops
+    const channelPostCounts = await dbAll('SELECT channel_id, COUNT(*) as count FROM posts GROUP BY channel_id');
+    const postCountMap = new Map(channelPostCounts.map(r => [r.channel_id, r.count]));
+
+    for (const chanId of channelMap.keys()) {
+      const isNumeric = /^@\d+$/.test(chanId);
       if (isNumeric) {
-        // Count posts remaining
-        const postCountRes = await dbGet('SELECT COUNT(*) as count FROM posts WHERE channel_id = ?', [chan.id]);
-        const postCount = postCountRes ? postCountRes.count : 0;
+        const postCount = postCountMap.get(chanId) || 0;
         
         if (postCount === 0) {
-          await dbRun('DELETE FROM channels WHERE id = ?', [chan.id]);
-          logger.info('database healing deleted orphaned numeric channel', { channel_id: chan.id });
+          await dbRun('DELETE FROM channels WHERE id = ?', [chanId]);
+          logger.info('database healing deleted orphaned numeric channel', { channel_id: chanId });
         }
       }
     }
+
+    // Commit healing changes before file migration
+    await dbRun('COMMIT');
 
     const healedPosts = await dbAll(
       'SELECT id, channel_id, type, file_path, thumbnail_path, metadata_json FROM posts'
@@ -265,6 +297,11 @@ export const healDatabase = async () => {
 
     logger.info('database healing check completed');
   } catch (err) {
+    try {
+      await dbRun('ROLLBACK');
+    } catch (_) {
+      // Ignore if no transaction was active
+    }
     logger.error('database healing failed', { error: err });
   }
 };

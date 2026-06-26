@@ -1,12 +1,13 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import MediaBrowser from './components/MediaBrowser';
-import ChannelManager from './components/ChannelManager';
-import DownloaderForm from './components/DownloaderForm';
-import CookieEditor from './components/CookieEditor';
-import LogQueue from './components/LogQueue';
-import SystemOverview from './components/SystemOverview';
+import React, { useEffect, useMemo, useState, lazy, Suspense } from 'react';
 import { requestJson } from './utils/api';
 import { formatBytes } from './utils/format';
+
+const MediaBrowser = lazy(() => import('./components/MediaBrowser'));
+const ChannelManager = lazy(() => import('./components/ChannelManager'));
+const DownloaderForm = lazy(() => import('./components/DownloaderForm'));
+const CookieEditor = lazy(() => import('./components/CookieEditor'));
+const LogQueue = lazy(() => import('./components/LogQueue'));
+const SystemOverview = lazy(() => import('./components/SystemOverview'));
 
 const tabs = [
   { id: 'browser', label: 'Archive', icon: 'grid' },
@@ -43,8 +44,27 @@ export default function App() {
 
   useEffect(() => {
     fetchStatus();
-    const interval = setInterval(fetchStatus, 10000);
-    return () => clearInterval(interval);
+
+    let isVisible = true;
+    const handleVisibilityChange = () => {
+      isVisible = !document.hidden;
+      if (isVisible) {
+        fetchStatus();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    const interval = setInterval(() => {
+      if (isVisible) {
+        fetchStatus();
+      }
+    }, 15000); // Poll status every 15s instead of 10s
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      clearInterval(interval);
+    };
   }, []);
 
   const counts = status?.queue?.counts || {};
@@ -131,10 +151,14 @@ export default function App() {
           </button>
         </section>
 
-        <SystemOverview status={status} />
+        <Suspense fallback={<div className="skeleton-placeholder-view">Loading Overview...</div>}>
+          <SystemOverview status={status} />
+        </Suspense>
 
         <section className="content-view">
-          {renderContent()}
+          <Suspense fallback={<div className="skeleton-placeholder-view">Loading View...</div>}>
+            {renderContent()}
+          </Suspense>
         </section>
       </main>
     </div>

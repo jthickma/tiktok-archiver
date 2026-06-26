@@ -263,7 +263,18 @@ export default function MediaBrowser() {
       </div>
 
       {loading ? (
-        <div className="empty-state">Loading archived media...</div>
+        <div className={`media-grid density-${density}`}>
+          {Array.from({ length: Math.min(limit, 24) }).map((_, idx) => (
+            <article key={idx} className="media-card skeleton-card">
+              <span className="media-thumbnail-wrapper skeleton-thumbnail" />
+              <span className="media-info skeleton-info">
+                <span className="skeleton-text short" />
+                <span className="skeleton-text long" />
+                <span className="skeleton-text medium" />
+              </span>
+            </article>
+          ))}
+        </div>
       ) : posts.length === 0 ? (
         <div className="empty-state">No archived media matches this view.</div>
       ) : (

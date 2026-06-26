@@ -116,7 +116,7 @@ export default function LogQueue({ onQueueChanged }) {
 
   useEffect(() => {
     fetchQueue().catch(console.error);
-    const interval = setInterval(() => fetchQueue().catch(console.error), 1500);
+    const interval = setInterval(() => fetchQueue().catch(console.error), 3000);
     return () => clearInterval(interval);
   }, [statusFilter, typeFilter]);
 
@@ -126,9 +126,15 @@ export default function LogQueue({ onQueueChanged }) {
       return undefined;
     }
     fetchLogs(selectedJob.id).catch(console.error);
-    const interval = setInterval(() => fetchLogs(selectedJob.id).catch(console.error), 1500);
+
+    const isTerminal = terminalStatuses.includes(selectedJob.status);
+    if (isTerminal) {
+      return undefined;
+    }
+
+    const interval = setInterval(() => fetchLogs(selectedJob.id).catch(console.error), 3000);
     return () => clearInterval(interval);
-  }, [selectedJob?.id]);
+  }, [selectedJob?.id, selectedJob?.status]);
 
   useEffect(() => {
     if (terminalRef.current) terminalRef.current.scrollTop = terminalRef.current.scrollHeight;

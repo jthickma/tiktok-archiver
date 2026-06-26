@@ -8,6 +8,27 @@ const commandAvailable = (command) => new Promise((resolve) => {
   proc.on('close', (code) => resolve(code === 0));
 });
 
+let toolCache = null;
+let toolCacheExpiresAt = 0;
+const CACHE_TTL_MS = 60000; // 60 seconds cache TTL
+
+const getCachedTools = async () => {
+  const now = Date.now();
+  if (toolCache && now < toolCacheExpiresAt) {
+    return toolCache;
+  }
+
+  const [ytDlp, galleryDl, ffmpeg] = await Promise.all([
+    commandAvailable('yt-dlp'),
+    commandAvailable('gallery-dl'),
+    commandAvailable('ffmpeg'),
+  ]);
+
+  toolCache = { ytDlp, galleryDl, ffmpeg };
+  toolCacheExpiresAt = now + CACHE_TTL_MS;
+  return toolCache;
+};
+
 const checkWritable = (dir) => {
   try {
     fs.accessSync(dir, fs.constants.W_OK);
@@ -51,10 +72,8 @@ export const getSystemStatus = async ({ startedAt, dataDir, downloadsDir, queueS
   const queueCounts = normalizeCounts(rows);
   const activeCount = queueCounts.pending + queueCounts.downloading;
 
-  const [ytDlp, galleryDl, ffmpeg, disk] = await Promise.all([
-    commandAvailable('yt-dlp'),
-    commandAvailable('gallery-dl'),
-    commandAvailable('ffmpeg'),
+  const [tools, disk] = await Promise.all([
+    getCachedTools(),
     diskFree(downloadsDir)
   ]);
 
