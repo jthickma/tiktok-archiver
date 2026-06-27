@@ -127,3 +127,9 @@ Thumbs.db
 # Project-specific persistent data and downloads
 data/
 downloads/
+.goose
+.kilocode
+.continue
+.claude
+.github
+
