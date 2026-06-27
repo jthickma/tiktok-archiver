@@ -2,8 +2,8 @@ import fs from 'fs';
 import { spawn } from 'child_process';
 import { dbAll } from './database.js';
 
-const commandAvailable = (command) => new Promise((resolve) => {
-  const proc = spawn(command, ['--version']);
+const commandAvailable = (command, args = ['--version']) => new Promise((resolve) => {
+  const proc = spawn(command, args);
   proc.on('error', () => resolve(false));
   proc.on('close', (code) => resolve(code === 0));
 });
@@ -21,7 +21,7 @@ const getCachedTools = async () => {
   const [ytDlp, galleryDl, ffmpeg] = await Promise.all([
     commandAvailable('yt-dlp'),
     commandAvailable('gallery-dl'),
-    commandAvailable('ffmpeg'),
+    commandAvailable('ffmpeg', ['-version']),
   ]);
 
   toolCache = { ytDlp, galleryDl, ffmpeg };
@@ -91,9 +91,9 @@ export const getSystemStatus = async ({ startedAt, dataDir, downloadsDir, queueS
     },
     monitor: monitorState,
     tools: {
-      ytDlp,
-      galleryDl,
-      ffmpeg
+      ytDlp: tools.ytDlp,
+      galleryDl: tools.galleryDl,
+      ffmpeg: tools.ffmpeg
     },
     storage: {
       dataDir,

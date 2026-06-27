@@ -107,6 +107,7 @@ else:
 `;
 
 export const extractUsername = extractNormalizedUsername;
+export { requireTikTokUsername };
 
 const registerProcess = (proc, options = {}) => {
   if (typeof options.onProcess === 'function') {
