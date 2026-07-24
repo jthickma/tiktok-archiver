@@ -126,4 +126,5 @@ Thumbs.db
 
 # Project-specific persistent data and downloads
 data/
+downloads
 downloads/

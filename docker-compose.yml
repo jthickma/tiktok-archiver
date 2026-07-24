@@ -7,7 +7,7 @@ services:
       - "18080:8080"
     restart: unless-stopped
     volumes:
-      - ./downloads:/app/downloads
+      - /opt/media/tiktok:/app/downloads
       - ./data:/app/data
     environment:
       - PORT=8080
