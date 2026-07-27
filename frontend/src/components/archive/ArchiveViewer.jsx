@@ -1,41 +1,91 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { formatDateTime } from '../../utils/format';
 import {
   avatarText,
   displaySource,
   getAvatarColor,
   isGroupedMedia,
+  partitionGroupedMedia,
 } from '../../utils/media';
 
 export default function ArchiveViewer({
   post,
   mediaFiles,
+  loading,
   slideIndex,
   setSlideIndex,
   onClose,
   onPrevious,
   onNext,
+  canPrevious,
+  canNext,
   position,
   pageSize,
 }) {
-  const activeMedia = mediaFiles[slideIndex];
-  const activeMediaPath = activeMedia?.path || post.file_path;
-  const activeMediaKind = activeMedia?.kind || post.type;
   const grouped = isGroupedMedia(post.type);
+  const { slides, audioTracks } = useMemo(
+    () => (grouped
+      ? partitionGroupedMedia(mediaFiles)
+      : { slides: mediaFiles, audioTracks: [] }),
+    [grouped, mediaFiles],
+  );
+  const slideCount = slides.length;
+  const activeMedia = grouped ? slides[slideIndex] : mediaFiles[0];
+  const activeMediaPath = grouped ? activeMedia?.path : activeMedia?.path || post.file_path;
+  const activeMediaKind = grouped ? activeMedia?.kind : activeMedia?.kind || post.type;
+  const closeButtonRef = useRef(null);
+  const swipeStart = useRef(null);
+  const activeThumbRef = useRef(null);
+
+  const showPreviousSlide = () => {
+    if (slideCount > 1) {
+      setSlideIndex((value) => (value - 1 + slideCount) % slideCount);
+    }
+  };
+
+  const showNextSlide = () => {
+    if (slideCount > 1) {
+      setSlideIndex((value) => (value + 1) % slideCount);
+    }
+  };
+
+  const handleViewerPrevious = grouped && slideCount > 1 ? showPreviousSlide : onPrevious;
+  const handleViewerNext = grouped && slideCount > 1 ? showNextSlide : onNext;
+
+  useEffect(() => {
+    if (slideIndex >= slideCount && slideCount > 0) setSlideIndex(0);
+  }, [slideCount, slideIndex, setSlideIndex]);
+
+  useEffect(() => {
+    activeThumbRef.current?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'nearest',
+      inline: 'center',
+    });
+  }, [slideIndex]);
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    closeButtonRef.current?.focus();
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (event) => {
-      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
+      if (['A', 'BUTTON', 'INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
       if (event.key === 'Escape') onClose();
-      if (event.key === 'ArrowLeft') onPrevious();
-      if (event.key === 'ArrowRight') onNext();
-      if (grouped && mediaFiles.length > 1 && event.key === 'ArrowUp') {
+      if (event.key === 'ArrowLeft') handleViewerPrevious();
+      if (event.key === 'ArrowRight') handleViewerNext();
+      if (grouped && slideCount > 1 && event.key === 'ArrowUp') {
         event.preventDefault();
-        setSlideIndex((value) => (value - 1 + mediaFiles.length) % mediaFiles.length);
+        showPreviousSlide();
       }
-      if (grouped && mediaFiles.length > 1 && event.key === 'ArrowDown') {
+      if (grouped && slideCount > 1 && event.key === 'ArrowDown') {
         event.preventDefault();
-        setSlideIndex((value) => (value + 1) % mediaFiles.length);
+        showNextSlide();
       }
       if (event.key === ' ' && activeMediaKind === 'video') {
         event.preventDefault();
@@ -48,45 +98,77 @@ export default function ArchiveViewer({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeMediaKind, grouped, mediaFiles.length, onClose, onNext, onPrevious, setSlideIndex]);
+  }, [activeMediaKind, grouped, onClose, slideCount]);
+
+  const handleTouchStart = (event) => {
+    if (event.target.closest('button, a, audio, video')) {
+      swipeStart.current = null;
+      return;
+    }
+    const touch = event.changedTouches[0];
+    swipeStart.current = { x: touch.clientX, y: touch.clientY };
+  };
+
+  const handleTouchEnd = (event) => {
+    if (!swipeStart.current) return;
+    const touch = event.changedTouches[0];
+    const deltaX = touch.clientX - swipeStart.current.x;
+    const deltaY = touch.clientY - swipeStart.current.y;
+    swipeStart.current = null;
+    if (Math.abs(deltaX) < 48 || Math.abs(deltaX) < Math.abs(deltaY) * 1.2) return;
+    if (deltaX > 0) handleViewerPrevious();
+    else handleViewerNext();
+  };
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-container media-modal-container" onClick={(event) => event.stopPropagation()}>
-        <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Close">✕</button>
+      <div
+        className="modal-container media-modal-container"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Viewing ${post.title || post.description || 'archived media'}`}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <button ref={closeButtonRef} type="button" className="modal-close-btn" onClick={onClose} aria-label="Close viewer">✕</button>
         <div className="media-player-layout">
-          <div className="media-viewer-pane">
-            <button type="button" className="nav-arrow-overlay prev-arrow" onClick={onPrevious} title="Previous media (←)" aria-label="Previous media">‹</button>
+          <div className="media-viewer-pane" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+            <button
+              type="button"
+              className="nav-arrow-overlay prev-arrow"
+              onClick={handleViewerPrevious}
+              disabled={!grouped && !canPrevious}
+              title={grouped && slideCount > 1 ? 'Previous slide (←)' : 'Previous post (←)'}
+              aria-label={grouped && slideCount > 1 ? 'Previous slide' : 'Previous post'}
+            >‹</button>
             <div className="media-modal-viewer">
-              {activeMediaKind === 'video' ? (
+              {loading ? (
+                <div className="viewer-loading" role="status">Loading media…</div>
+              ) : activeMediaKind === 'video' && activeMediaPath ? (
                 <video controls autoPlay playsInline src={`/media/${activeMediaPath}`} />
-              ) : activeMediaKind === 'audio' ? (
-                <div className="slideshow-view"><audio controls autoPlay src={`/media/${activeMediaPath}`} /></div>
+              ) : activeMediaKind === 'audio' && activeMediaPath ? (
+                <div className="audio-only-view">
+                  <span>Audio</span>
+                  <audio controls src={`/media/${activeMediaPath}`} />
+                </div>
               ) : activeMediaPath ? (
                 <div className="slideshow-view">
                   <img src={`/media/${activeMediaPath}`} alt={activeMedia?.name || post.title || post.id} />
-                  {mediaFiles.length > 1 ? (
-                    <div className="slide-indicator-pills">
-                      {mediaFiles.map((item, index) => (
-                        <button
-                          key={item.path}
-                          type="button"
-                          className={`slide-indicator-dot ${index === slideIndex ? 'active' : ''}`}
-                          onClick={() => setSlideIndex(index)}
-                          title={`Go to media ${index + 1}`}
-                        />
-                      ))}
-                    </div>
-                  ) : null}
                 </div>
-              ) : <div className="empty-state">No media files found.</div>}
+              ) : <div className="viewer-empty">No viewable media files found.</div>}
             </div>
-            <button type="button" className="nav-arrow-overlay next-arrow" onClick={onNext} title="Next media (→)" aria-label="Next media">›</button>
-            {grouped && mediaFiles.length > 1 ? (
-              <div className="slideshow-hud-controls">
-                <button type="button" className="hud-slide-btn prev-slide" onClick={() => setSlideIndex((slideIndex - 1 + mediaFiles.length) % mediaFiles.length)}>▲</button>
-                <span className="hud-slide-counter">{slideIndex + 1} / {mediaFiles.length}</span>
-                <button type="button" className="hud-slide-btn next-slide" onClick={() => setSlideIndex((slideIndex + 1) % mediaFiles.length)}>▼</button>
+            <button
+              type="button"
+              className="nav-arrow-overlay next-arrow"
+              onClick={handleViewerNext}
+              disabled={!grouped && !canNext}
+              title={grouped && slideCount > 1 ? 'Next slide (→)' : 'Next post (→)'}
+              aria-label={grouped && slideCount > 1 ? 'Next slide' : 'Next post'}
+            >›</button>
+            {grouped && slideCount > 0 ? (
+              <div className="slideshow-controls" aria-label="Slideshow controls">
+                <button type="button" className="slide-step-btn" onClick={showPreviousSlide} disabled={slideCount < 2} aria-label="Previous slide">‹</button>
+                <span className="hud-slide-counter">{slideIndex + 1} / {slideCount}</span>
+                <button type="button" className="slide-step-btn" onClick={showNextSlide} disabled={slideCount < 2} aria-label="Next slide">›</button>
               </div>
             ) : null}
           </div>
@@ -104,6 +186,35 @@ export default function ArchiveViewer({
               </div>
             </div>
             <div className="info-pane-body">
+              {grouped && slideCount > 1 ? (
+                <div className="slide-strip" aria-label="Choose a slide">
+                  {slides.map((item, index) => (
+                    <button
+                      key={item.path}
+                      ref={index === slideIndex ? activeThumbRef : null}
+                      type="button"
+                      className={index === slideIndex ? 'active' : ''}
+                      onClick={() => setSlideIndex(index)}
+                      aria-label={`Show slide ${index + 1}`}
+                      aria-current={index === slideIndex ? 'true' : undefined}
+                    >
+                      {item.kind === 'image'
+                        ? <img src={`/media/${item.path}`} alt="" loading="lazy" />
+                        : <span className="slide-video-label">Video</span>}
+                      <span>{index + 1}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              {audioTracks.length > 0 ? (
+                <div className="soundtrack-section">
+                  <div>
+                    <span className="soundtrack-label">Soundtrack</span>
+                    <span className="soundtrack-name">{audioTracks[0].name}</span>
+                  </div>
+                  <audio controls preload="metadata" src={`/media/${audioTracks[0].path}`} />
+                </div>
+              ) : null}
               <div className="post-caption-section">
                 <h3 className="caption-heading">Caption</h3>
                 <p className="post-caption-text">{post.description || post.title || 'No caption available'}</p>
@@ -122,10 +233,10 @@ export default function ArchiveViewer({
               ) : (
                 <div className="slideshow-download-fallback-message">Media files are stored in: <code className="slide-dir-code">{post.file_path}</code></div>
               )}
-              <div className="mobile-only-control-bar">
-                <button type="button" className="btn btn-secondary mobile-nav-btn" onClick={onPrevious}>◀ Prev</button>
-                <span className="mobile-nav-page-indicator">{position} / {pageSize}</span>
-                <button type="button" className="btn btn-secondary mobile-nav-btn" onClick={onNext}>Next ▶</button>
+              <div className="post-navigation">
+                <button type="button" className="btn btn-secondary post-nav-btn" onClick={onPrevious} disabled={!canPrevious}>‹ Previous post</button>
+                <span className="post-position">{position} / {pageSize}</span>
+                <button type="button" className="btn btn-secondary post-nav-btn" onClick={onNext} disabled={!canNext}>Next post ›</button>
               </div>
             </div>
           </div>

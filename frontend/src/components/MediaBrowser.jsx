@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { requestJson } from '../utils/api';
 import { displaySource, fallbackThumb, isGroupedMedia } from '../utils/media';
 import ArchiveFilters from './archive/ArchiveFilters';
@@ -21,13 +21,22 @@ export default function MediaBrowser() {
   const [density, setDensity] = useState('compact');
   const [activePost, setActivePost] = useState(null);
   const [mediaFiles, setMediaFiles] = useState([]);
+  const [mediaLoading, setMediaLoading] = useState(false);
   const [slideIndex, setSlideIndex] = useState(0);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const openRequestId = useRef(0);
 
   const totalPages = Math.max(1, Math.ceil(total / limit));
+  const activePostIndex = activePost
+    ? posts.findIndex((post) => post.id === activePost.id)
+    : -1;
+  const canNavigatePrevious = activePostIndex >= 0
+    && (activePostIndex > 0 || page > 1);
+  const canNavigateNext = activePostIndex >= 0
+    && (activePostIndex < posts.length - 1 || page < totalPages);
   const queryString = useMemo(() => {
     const params = new URLSearchParams({
       page,
@@ -45,16 +54,30 @@ export default function MediaBrowser() {
   }, [page, limit, sort, direction, search, selectedChannels, selectedType, dateFrom, dateTo, missingThumbnail]);
 
   const openPost = async (post) => {
+    const requestId = openRequestId.current + 1;
+    openRequestId.current = requestId;
     setActivePost(post);
     setMediaFiles([]);
     setSlideIndex(0);
+    setMediaLoading(isGroupedMedia(post.type));
     if (!isGroupedMedia(post.type)) return;
     try {
       const data = await requestJson(`/api/posts/${post.id}`, {}, 'Failed to load media files');
+      if (requestId !== openRequestId.current) return;
       setMediaFiles(data.media || []);
     } catch (requestError) {
+      if (requestId !== openRequestId.current) return;
       setError(requestError.message);
+    } finally {
+      if (requestId === openRequestId.current) setMediaLoading(false);
     }
+  };
+
+  const closePost = () => {
+    openRequestId.current += 1;
+    setActivePost(null);
+    setMediaFiles([]);
+    setMediaLoading(false);
   };
 
   const handlePrevious = () => {
@@ -222,12 +245,15 @@ export default function MediaBrowser() {
         <ArchiveViewer
           post={activePost}
           mediaFiles={mediaFiles}
+          loading={mediaLoading}
           slideIndex={slideIndex}
           setSlideIndex={setSlideIndex}
-          onClose={() => setActivePost(null)}
+          onClose={closePost}
           onPrevious={handlePrevious}
           onNext={handleNext}
-          position={posts.findIndex((post) => post.id === activePost.id) + 1}
+          canPrevious={canNavigatePrevious}
+          canNext={canNavigateNext}
+          position={Math.max(1, activePostIndex + 1)}
           pageSize={posts.length}
         />
       ) : null}
