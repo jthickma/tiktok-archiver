@@ -111,7 +111,10 @@ export default function MediaBrowser() {
         setTotal(data.total || 0);
       })
       .catch((requestError) => {
-        if (current) setError(requestError.message);
+        if (current) {
+          setError(requestError.message);
+          setPendingNavigation(null);
+        }
       })
       .finally(() => {
         if (current) setLoading(false);
