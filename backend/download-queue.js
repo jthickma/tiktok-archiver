@@ -150,7 +150,24 @@ export const createDownloadQueue = ({ database, acquisition }) => {
 
   const clearCompleted = () => jobs.clearCompletedJobs(run);
 
+  const getStoredProfileScanId = async (username) => {
+    const row = await get(
+      `SELECT json_extract(metadata_json, '$.channel_id') AS profile_scan_id
+       FROM posts
+       WHERE channel_id = ?
+         AND json_valid(metadata_json)
+         AND json_extract(metadata_json, '$.channel_id') IS NOT NULL
+       ORDER BY downloaded_at DESC
+       LIMIT 1`,
+      [username],
+    );
+    const profileScanId = String(row?.profile_scan_id || '').trim();
+    return profileScanId && !/\s/.test(profileScanId) ? profileScanId : null;
+  };
+
   const processChannel = async (job) => {
+    const username = requireTikTokUsername(job.url);
+    const fallbackUserId = await getStoredProfileScanId(username);
     await jobs.updateJobStatus(
       run,
       job.id,
@@ -160,8 +177,16 @@ export const createDownloadQueue = ({ database, acquisition }) => {
     );
     const entries = await acquisition.scanProfile(job.url, {
       onProcess: (proc) => activeProcesses.set(job.id, proc),
+      fallbackUserId,
+      onFallback: () =>
+        jobs.updateJobStatus(
+          run,
+          job.id,
+          20,
+          'downloading',
+          'Using archived TikTok user ID for a more reliable profile scan...',
+        ),
     });
-    const username = requireTikTokUsername(job.url);
     await jobs.updateJobStatus(
       run,
       job.id,
@@ -177,9 +202,11 @@ export const createDownloadQueue = ({ database, acquisition }) => {
         entry.id,
       ]);
       if (postExists) continue;
-      const postUrl =
-        entry.url ||
-        `https://www.tiktok.com/@${username.replace(/^@/, '')}/video/${entry.id}`;
+      // A `tiktokuser:<channel_id>` scan returns entry URLs whose @ segment is
+      // the internal channel ID (MS4w...), not the public TikTok handle. Those
+      // URLs are unreliable for individual extraction, so always rebuild the
+      // canonical post URL from the profile URL the user actually queued.
+      const postUrl = `https://www.tiktok.com/@${username.replace(/^@/, '')}/video/${entry.id}`;
       const queued = await jobs.enqueueJob(run, get, postUrl, 'post');
       if (queued.created || queued.requeued) newPostsCount += 1;
     }
