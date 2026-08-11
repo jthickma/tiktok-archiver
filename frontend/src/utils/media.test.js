@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { partitionGroupedMedia } from './media.js';
+import { partitionGroupedMedia, resolvePageNavigation } from './media.js';
 
 test('partitionGroupedMedia keeps soundtrack audio out of the slide count', () => {
   const media = [
@@ -25,4 +25,14 @@ test('partitionGroupedMedia ignores unknown sidecar files', () => {
     slides: [media[1]],
     audioTracks: [],
   });
+});
+
+test('resolvePageNavigation waits for the requested page before selecting an edge item', () => {
+  const oldPagePosts = [{ id: 'old-first' }, { id: 'old-last' }];
+  const newPagePosts = [{ id: 'new-first' }, { id: 'new-last' }];
+  const pending = { edge: 'first', page: 2 };
+
+  assert.equal(resolvePageNavigation(pending, 1, oldPagePosts), null);
+  assert.equal(resolvePageNavigation(pending, 2, newPagePosts), newPagePosts[0]);
+  assert.equal(resolvePageNavigation({ edge: 'last', page: 2 }, 2, newPagePosts), newPagePosts[1]);
 });

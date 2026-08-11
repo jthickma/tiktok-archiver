@@ -134,7 +134,7 @@ export default function App() {
     if (activeTab === 'downloader') return <DownloaderForm onNavigateToQueue={() => navigate('queue')} />;
     if (activeTab === 'cookies') return <CookieEditor />;
     if (activeTab === 'queue') return <LogQueue onQueueChanged={fetchStatus} />;
-    return <MediaBrowser />;
+    return <MediaBrowser onNavigateToDownload={() => navigate('downloader')} />;
   };
 
   return (
@@ -208,7 +208,7 @@ export default function App() {
           </div>
         </header>
 
-        <section className="metrics-row" aria-label="Queue summary">
+        <section className={`metrics-row ${activeTab === 'browser' ? 'archive-context-summary' : ''}`} aria-label="Queue summary">
           {[
             ['downloading', 'Downloading'],
             ['pending', 'Waiting'],
@@ -223,7 +223,9 @@ export default function App() {
           ))}
         </section>
 
-        <SystemOverview status={status} />
+        <div className={activeTab === 'browser' ? 'archive-context-summary' : ''}>
+          <SystemOverview status={status} />
+        </div>
 
         <section className="content-view" aria-live="polite">
           {renderContent()}

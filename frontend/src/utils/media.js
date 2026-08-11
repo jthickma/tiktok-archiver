@@ -12,6 +12,11 @@ export const partitionGroupedMedia = (mediaFiles = []) =>
     { slides: [], audioTracks: [] },
   );
 
+export const resolvePageNavigation = (pendingNavigation, loadedPage, posts = []) => {
+  if (!pendingNavigation || pendingNavigation.page !== loadedPage || posts.length === 0) return null;
+  return pendingNavigation.edge === 'last' ? posts.at(-1) : posts[0];
+};
+
 export const fallbackThumb = (type) => {
   const label = type === 'slideshow' ? 'SLIDES' : type === 'gallery' ? 'GALLERY' : type === 'image' ? 'IMAGE' : type === 'audio' ? 'AUDIO' : 'VIDEO';
   return `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 320 420'%3E%3Crect width='320' height='420' fill='%2313171f'/%3E%3Ccircle cx='160' cy='178' r='46' fill='%2328313d'/%3E%3Ctext x='160' y='258' text-anchor='middle' fill='%2398a2b3' font-family='Arial' font-size='22'%3E${label}%3C/text%3E%3C/svg%3E`;
