@@ -612,22 +612,8 @@ export const getMetadata = (url, options = {}) => {
   });
 };
 
-export const scanProfileWithFallback = async ({
-  profileUrl,
-  fallbackUserId,
-  scan,
-  onFallback,
-}) => {
-  const userId = String(fallbackUserId || '').trim();
-  if (userId && !/\s/.test(userId)) {
-    await onFallback?.();
-    return scan(`tiktokuser:${userId}`);
-  }
-  return scan(profileUrl);
-};
-
 // Fetch all video entries in a profile (flat-playlist scan)
-const scanProfileOnce = (profileUrl, options = {}) => {
+export const scanProfile = (profileUrl, options = {}) => {
   return new Promise((resolve, reject) => {
     const args = ['--flat-playlist', '--dump-json', '--no-warnings'];
     if (hasCookies()) args.push('--cookies', COOKIES_PATH);
@@ -669,14 +655,6 @@ const scanProfileOnce = (profileUrl, options = {}) => {
     });
   });
 };
-
-export const scanProfile = (profileUrl, options = {}) =>
-  scanProfileWithFallback({
-    profileUrl,
-    fallbackUserId: options.fallbackUserId,
-    onFallback: options.onFallback,
-    scan: (input) => scanProfileOnce(input, options),
-  });
 
 const buildPostData = ({
   id,

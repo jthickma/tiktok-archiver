@@ -75,11 +75,8 @@ export default function ArchiveViewer({
 
   useEffect(() => {
     const handleKeyDown = (event) => {
-      if (event.key === 'Escape') {
-        onClose();
-        return;
-      }
       if (['A', 'BUTTON', 'INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
+      if (event.key === 'Escape') onClose();
       if (event.key === 'ArrowLeft') handleViewerPrevious();
       if (event.key === 'ArrowRight') handleViewerNext();
       if (grouped && slideCount > 1 && event.key === 'ArrowUp') {
@@ -101,7 +98,7 @@ export default function ArchiveViewer({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeMediaKind, grouped, onClose, onNext, onPrevious, slideCount]);
+  }, [activeMediaKind, grouped, onClose, slideCount]);
 
   const handleTouchStart = (event) => {
     if (event.target.closest('button, a, audio, video')) {
@@ -167,7 +164,7 @@ export default function ArchiveViewer({
               title={grouped && slideCount > 1 ? 'Next slide (→)' : 'Next post (→)'}
               aria-label={grouped && slideCount > 1 ? 'Next slide' : 'Next post'}
             >›</button>
-            {grouped && slideCount > 1 ? (
+            {grouped && slideCount > 0 ? (
               <div className="slideshow-controls" aria-label="Slideshow controls">
                 <button type="button" className="slide-step-btn" onClick={showPreviousSlide} disabled={slideCount < 2} aria-label="Previous slide">‹</button>
                 <span className="hud-slide-counter">{slideIndex + 1} / {slideCount}</span>

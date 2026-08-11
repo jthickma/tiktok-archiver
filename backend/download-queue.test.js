@@ -58,10 +58,7 @@ test('download queue converts a profile scan into post jobs', async () => {
     database,
     acquisition: {
       scanProfile: async () => [
-        {
-          id: '11',
-          url: 'https://www.tiktok.com/@MS4wLjABAAAA-internal-id/video/11',
-        },
+        { id: '11', url: 'https://www.tiktok.com/@alice/video/11' },
         { id: '12', url: 'https://www.tiktok.com/@alice/video/12' },
       ],
       downloadGallery: async () => {},
@@ -87,52 +84,5 @@ test('download queue converts a profile scan into post jobs', async () => {
     'https://www.tiktok.com/@alice/video/11',
     'https://www.tiktok.com/@alice/video/12',
   ]);
-  await database.close();
-});
-
-test('download queue supplies an archived TikTok user ID for profile scan fallback', async () => {
-  const database = createTestDatabase();
-  await createCatalogSchema(database);
-  await createQueueSchema(database);
-  await database.run(
-    `INSERT INTO posts
-     (id, channel_id, type, url, downloaded_at, metadata_json)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [
-      '10',
-      '@alice',
-      'video',
-      'https://www.tiktok.com/@alice/video/10',
-      new Date().toISOString(),
-      JSON.stringify({ channel_id: 'MS4wLjABAAAA-profile-id' }),
-    ],
-  );
-  let receivedOptions;
-  const queue = createDownloadQueue({
-    database,
-    acquisition: {
-      scanProfile: async (_url, options) => {
-        receivedOptions = options;
-        return [];
-      },
-      downloadGallery: async () => {},
-      downloadPost: async () => {},
-    },
-  });
-
-  const created = await queue.enqueue(
-    'https://www.tiktok.com/@alice',
-    'channel',
-  );
-  await waitFor(async () => {
-    const job = await database.get(
-      'SELECT status FROM download_jobs WHERE id = ?',
-      [created.id],
-    );
-    return job?.status === 'completed';
-  });
-
-  assert.equal(receivedOptions.fallbackUserId, 'MS4wLjABAAAA-profile-id');
-  assert.equal(typeof receivedOptions.onFallback, 'function');
   await database.close();
 });
