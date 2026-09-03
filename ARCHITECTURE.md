@@ -42,7 +42,6 @@ lifecycle logic.
 Files:
 
 - `backend/download-queue.js`
-- `backend/queue.js` (compatibility exports)
 - `backend/repositories/job-repository.js`
 
 The Download Queue owns:
@@ -66,15 +65,16 @@ through the real queue interface.
 
 Files:
 
-- `backend/acquisition.js`
 - `backend/downloader.js`
 - `backend/yt-dlp-options.js`
 - `backend/thumbnails.js`
 
-The Acquisition interface is intentionally small: profile scan, normal media
-download, gallery download, and metadata lookup. Provider parsing, child
+The queue receives only the three acquisition operations it needs: profile
+scan, normal media download, and gallery download. `backend/index.js` wires
+those concrete operations directly from `downloader.js`; no pass-through
+facade sits between the queue and the implementation. Provider parsing, child
 processes, fallback logic, naming, and normalized results retain locality in
-the implementation.
+the downloader.
 
 External tools are real adapters. The queue can substitute them in tests
 without mocking internal queue behavior.

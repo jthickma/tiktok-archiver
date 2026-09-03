@@ -177,9 +177,3 @@ export const createMonitoredProfiles = ({
     monitorState,
   });
 };
-
-/**
- * Compatibility constructor for older callers that only need registry work.
- */
-export const createChannelRegistry = ({ channelsFile }) =>
-  createMonitoredProfiles({ channelsFile });

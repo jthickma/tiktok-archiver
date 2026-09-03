@@ -4,7 +4,7 @@ import path from 'path';
 /**
  * Media file extension sets — shared across downloader, posts, archives
  */
-export const IMAGE_EXTENSIONS = new Set([
+const IMAGE_EXTENSIONS = new Set([
   '.jpg',
   '.jpeg',
   '.png',
@@ -12,14 +12,14 @@ export const IMAGE_EXTENSIONS = new Set([
   '.gif',
   '.avif',
 ]);
-export const VIDEO_EXTENSIONS = new Set([
+const VIDEO_EXTENSIONS = new Set([
   '.mp4',
   '.m4v',
   '.mov',
   '.webm',
   '.mkv',
 ]);
-export const AUDIO_EXTENSIONS = new Set([
+const AUDIO_EXTENSIONS = new Set([
   '.mp3',
   '.m4a',
   '.wav',
@@ -32,15 +32,6 @@ export const MEDIA_EXTENSIONS = new Set([
   ...VIDEO_EXTENSIONS,
   ...AUDIO_EXTENSIONS,
 ]);
-
-/**
- * Regex-based checks for when Set lookup isn't convenient (e.g. in filter chains).
- */
-const IMAGE_REGEX = /\.(jpg|jpeg|png|webp|gif|avif|image)$/i;
-const VIDEO_REGEX = /\.(mp4|m4v|mov|webm|mkv)$/i;
-const AUDIO_REGEX = /\.(mp3|m4a|wav|flac|ogg|opus)$/i;
-const MEDIA_REGEX =
-  /\.(jpg|jpeg|png|webp|gif|avif|mp4|m4v|mov|webm|mkv|mp3|m4a|wav|flac|ogg|opus|image)$/i;
 
 /**
  * Check if a file path has a media extension using Set lookup.
@@ -73,34 +64,6 @@ export const isVideoFile = (filePath) =>
  */
 export const isAudioFile = (filePath) =>
   AUDIO_EXTENSIONS.has(path.extname(filePath).toLowerCase());
-
-/**
- * Check if a file path matches a media extension via regex.
- * @param {string} filePath
- * @returns {boolean}
- */
-export const isMediaFileRegex = (filePath) => MEDIA_REGEX.test(filePath);
-
-/**
- * Check if a file path matches an image extension via regex.
- * @param {string} filePath
- * @returns {boolean}
- */
-export const isImageFileRegex = (filePath) => IMAGE_REGEX.test(filePath);
-
-/**
- * Check if a file path matches a video extension via regex.
- * @param {string} filePath
- * @returns {boolean}
- */
-export const isVideoFileRegex = (filePath) => VIDEO_REGEX.test(filePath);
-
-/**
- * Check if a file path matches an audio extension via regex.
- * @param {string} filePath
- * @returns {boolean}
- */
-export const isAudioFileRegex = (filePath) => AUDIO_REGEX.test(filePath);
 
 /**
  * Determine the media kind string from a file path.
@@ -188,21 +151,4 @@ export const getExtensionFromUrl = (url, fallback = '.jpg') => {
     if (MEDIA_EXTENSIONS.has(ext)) return ext;
   } catch {}
   return fallback;
-};
-
-/**
- * Walk a directory recursively, returning all file paths (deep).
- * @param {string} dir
- * @param {object} fsModule
- * @param {object} pathModule
- * @returns {string[]}
- */
-export const walkFiles = (dir, fsModule = fs, pathModule = path) => {
-  const entries = fsModule.readdirSync(dir, { withFileTypes: true });
-  return entries.flatMap((entry) => {
-    const fullPath = pathModule.join(dir, entry.name);
-    if (entry.isDirectory() && entry.name === '.thumbnails') return [];
-    if (entry.isDirectory()) return walkFiles(fullPath, fsModule, pathModule);
-    return [fullPath];
-  });
 };

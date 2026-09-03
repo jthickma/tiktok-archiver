@@ -1,21 +1,9 @@
 import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
-import { dbRun } from './database.js';
 import { logger } from './logger.js';
-
-const VIDEO_EXTENSIONS = new Set(['.mp4', '.m4v', '.mov', '.webm', '.mkv']);
-
-const toWebPath = (downloadsDir, fullPath) => path.relative(downloadsDir, fullPath).split(path.sep).join('/');
-
-const safeResolve = (downloadsDir, relativePath) => {
-  const root = path.resolve(downloadsDir);
-  const resolved = path.resolve(root, relativePath || '');
-  if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) return null;
-  return resolved;
-};
-
-const isVideoFile = (filePath) => VIDEO_EXTENSIONS.has(path.extname(filePath || '').toLowerCase());
+import { isVideoFile } from './utils/media-files.js';
+import { safeResolve, toWebPath } from './utils/path-utils.js';
 
 const runFfmpegThumbnail = (videoPath, thumbnailPath) => new Promise((resolve, reject) => {
   const args = [
@@ -58,7 +46,7 @@ export const createVideoThumbnail = async (videoPath, downloadsDir) => {
   return toWebPath(downloadsDir, thumbnailPath);
 };
 
-export const ensurePostThumbnail = async (post, downloadsDir) => {
+const ensurePostThumbnail = async (post, downloadsDir, updateThumbnail) => {
   if (!post || post.type !== 'video') return post;
 
   if (post.thumbnail_path) {
@@ -73,7 +61,7 @@ export const ensurePostThumbnail = async (post, downloadsDir) => {
     const thumbnailPath = await createVideoThumbnail(videoPath, downloadsDir);
     if (!thumbnailPath) return post;
 
-    await dbRun('UPDATE posts SET thumbnail_path = ? WHERE id = ?', [thumbnailPath, post.id]);
+    await updateThumbnail(post.id, thumbnailPath);
     return { ...post, thumbnail_path: thumbnailPath };
   } catch (error) {
     logger.warn('video thumbnail generation failed', { post_id: post.id, file_path: post.file_path, error });
@@ -81,10 +69,16 @@ export const ensurePostThumbnail = async (post, downloadsDir) => {
   }
 };
 
-export const ensurePostThumbnails = async (posts, downloadsDir) => {
+export const ensurePostThumbnails = async (
+  posts,
+  downloadsDir,
+  updateThumbnail,
+) => {
   const updatedPosts = [];
   for (const post of posts) {
-    updatedPosts.push(await ensurePostThumbnail(post, downloadsDir));
+    updatedPosts.push(
+      await ensurePostThumbnail(post, downloadsDir, updateThumbnail),
+    );
   }
   return updatedPosts;
 };

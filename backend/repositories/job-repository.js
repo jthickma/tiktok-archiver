@@ -578,7 +578,7 @@ export const markJobFailed = async (dbRun, jobId, errorClass, errorMessage) => {
 };
 
 /**
- * The error classification logic extracted from queue.js.
+ * Classify acquisition failures for queue retry policy.
  * @param {Error} error
  * @returns {string}
  */

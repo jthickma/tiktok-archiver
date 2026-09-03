@@ -46,7 +46,7 @@ test('download queue owns a complete successful post lifecycle', async () => {
   assert.deepEqual(calls, ['https://example.com/media/1']);
   assert.equal(completed.progress, 100);
   assert.equal((await queue.summary()).counts.completed, 1);
-  assert.equal(queue.state().isProcessing, false);
+  await waitFor(() => !queue.state().isProcessing);
   await database.close();
 });
 
@@ -77,12 +77,18 @@ test('download queue converts a profile scan into post jobs', async () => {
     );
     return job?.status === 'completed';
   });
-  const childJobs = await database.all(
-    "SELECT url FROM download_jobs WHERE type = 'post' ORDER BY url",
-  );
+  const childJobs = await waitFor(async () => {
+    const rows = await database.all(
+      "SELECT url, status FROM download_jobs WHERE type = 'post' ORDER BY url",
+    );
+    return rows.length === 2 && rows.every((job) => job.status === 'completed')
+      ? rows
+      : null;
+  });
   assert.deepEqual(childJobs.map((job) => job.url), [
     'https://www.tiktok.com/@alice/video/11',
     'https://www.tiktok.com/@alice/video/12',
   ]);
+  await waitFor(() => !queue.state().isProcessing);
   await database.close();
 });

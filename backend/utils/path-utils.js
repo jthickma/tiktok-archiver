@@ -57,15 +57,3 @@ export const safeSegment = (value, fallback = 'download') => {
     .slice(0, 96);
   return clean || fallback;
 };
-
-/**
- * Sanitize a string for use in an archive naming part.
- *
- * @param {string} value
- * @returns {string}
- */
-export const safePart = (value) =>
-  String(value || '')
-    .trim()
-    .replace(/[^a-zA-Z0-9@._-]+/g, '_')
-    .replace(/^_+|_+$/g, '');

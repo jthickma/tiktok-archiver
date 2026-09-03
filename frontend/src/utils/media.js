@@ -1,4 +1,4 @@
-export const groupedMediaTypes = new Set(['slideshow', 'gallery']);
+const groupedMediaTypes = new Set(['slideshow', 'gallery']);
 
 export const isGroupedMedia = (type) => groupedMediaTypes.has(type);
 

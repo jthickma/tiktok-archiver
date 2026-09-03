@@ -5,8 +5,8 @@ import { ensurePostThumbnails } from './thumbnails.js';
 import {
   collectMediaFiles,
   isMediaFile,
+  listFiles,
   mediaKind,
-  walkFiles,
 } from './utils/media-files.js';
 import { safeResolve, toWebPathRelative } from './utils/path-utils.js';
 import * as posts from './repositories/post-repository.js';
@@ -47,7 +47,7 @@ export const createArchiveCatalog = ({ database, downloadsDir }) => {
     if (!fullPath || !fs.existsSync(fullPath)) return [];
     const root = path.resolve(downloadsDir);
     const files = fs.statSync(fullPath).isDirectory()
-      ? walkFiles(fullPath, fs, path)
+      ? listFiles(fullPath)
       : [fullPath];
     return files
       .filter(isMediaFile)
@@ -71,7 +71,11 @@ export const createArchiveCatalog = ({ database, downloadsDir }) => {
     const result = await posts.searchPosts(all, get, query);
     return {
       ...result,
-      posts: await ensurePostThumbnails(result.posts, downloadsDir),
+      posts: await ensurePostThumbnails(
+        result.posts,
+        downloadsDir,
+        (id, thumbnailPath) => posts.updatePostThumbnail(run, id, thumbnailPath),
+      ),
     };
   };
 
