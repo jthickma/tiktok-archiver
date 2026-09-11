@@ -12,6 +12,8 @@ export default function ArchiveViewer({
   post,
   mediaFiles,
   loading,
+  navigating,
+  error,
   slideIndex,
   setSlideIndex,
   onClose,
@@ -87,7 +89,7 @@ export default function ArchiveViewer({
         return;
       }
       if (event.key === 'Tab') {
-        const focusable = dialogRef.current?.querySelectorAll('a[href], button:not([disabled]), audio[controls], video[controls]');
+        const focusable = dialogRef.current?.querySelectorAll('a[href], button:not([disabled]), audio[controls], video[controls], summary');
         if (!focusable?.length) return;
         const first = focusable[0];
         const last = focusable[focusable.length - 1];
@@ -140,8 +142,8 @@ export default function ArchiveViewer({
     const deltaY = touch.clientY - swipeStart.current.y;
     swipeStart.current = null;
     if (Math.abs(deltaX) < 48 || Math.abs(deltaX) < Math.abs(deltaY) * 1.2) return;
-    if (deltaX > 0) handleViewerPrevious();
-    else handleViewerNext();
+    if (deltaX > 0 && canViewerPrevious) handleViewerPrevious();
+    else if (deltaX < 0 && canViewerNext) handleViewerNext();
   };
 
   return (
@@ -160,7 +162,7 @@ export default function ArchiveViewer({
         <div className="media-player-layout">
           <div className="media-viewer-pane" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
             <div className="viewer-context">
-              <span>{position} of {pageSize}</span>
+              <span role="status">{navigating ? 'Loading page…' : `${position} of ${pageSize}`}</span>
               <span className="viewer-shortcuts">← → browse · space play/pause · esc close</span>
             </div>
             <button
@@ -259,13 +261,15 @@ export default function ArchiveViewer({
                 <h3 className="caption-heading">Caption</h3>
                 <p className="post-caption-text">{post.description || post.title || 'No caption available'}</p>
               </div>
-              <div className="post-stats-section">
+              <details className="post-stats-section">
+                <summary>File details</summary>
                 <div className="stat-row"><span className="stat-label">Upload Date</span><span className="stat-value">{post.upload_date || 'Unknown'}</span></div>
                 <div className="stat-row"><span className="stat-label">Archived At</span><span className="stat-value">{formatDateTime(post.downloaded_at, 'Unknown')}</span></div>
                 <div className="stat-row"><span className="stat-label">File Name</span><span className="stat-value file-path-text" title={post.file_path}>{post.file_path?.split('/').pop() || 'Unknown'}</span></div>
-              </div>
+              </details>
             </div>
             <div className="info-pane-footer">
+              {error ? <p className="alert danger" role="alert">{error}</p> : null}
               {!grouped ? (
                 <a href={`/api/posts/${post.id}/download`} className="btn-action-primary download-action-btn" download>Download media</a>
               ) : activeMedia ? (
@@ -275,7 +279,6 @@ export default function ArchiveViewer({
               )}
               <div className="post-navigation">
                 <button type="button" className="btn btn-secondary post-nav-btn" onClick={onPrevious} disabled={!canPrevious}>‹ Previous post</button>
-                <span className="post-position" aria-label={`${position} of ${pageSize} archived items`}>{position} / {pageSize}</span>
                 <button type="button" className="btn btn-secondary post-nav-btn" onClick={onNext} disabled={!canNext}>Next post ›</button>
               </div>
             </div>

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { requestJson } from '../utils/api';
 import { displaySource, fallbackThumb, isGroupedMedia, resolvePageNavigation } from '../utils/media';
 import ArchiveFilters from './archive/ArchiveFilters';
@@ -28,12 +28,48 @@ function DownloadGlyph() {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14" /></svg>;
 }
 
+const MediaGrid = memo(function MediaGrid({ posts, density, openPost }) {
+  return (
+        <div className={`media-grid density-${density}`}>
+          {posts.map((post) => (
+            <article key={post.id} className="media-card">
+              <button type="button" className="media-open" onClick={() => void openPost(post)}>
+                <span className="media-thumbnail-wrapper">
+                  <img
+                    src={post.thumbnail_path ? `/media/${post.thumbnail_path}` : fallbackThumb(post.type)}
+                    alt={post.title || post.description || post.id}
+                    className="media-thumbnail"
+                    loading="lazy"
+                    decoding="async"
+                    onError={(event) => {
+                      event.currentTarget.src = fallbackThumb(post.type);
+                    }}
+                  />
+                  <span className="media-open-glyph"><MediaGlyph type={post.type} /></span>
+                  <span className={`media-badge ${post.type}`}>{post.type}</span>
+                </span>
+                <span className="media-info">
+                  <span className="media-author">{displaySource(post.channel_id)}</span>
+                  <strong>{post.title || post.description || 'Untitled media'}</strong>
+                  <span className="media-meta"><span>{post.upload_date || 'Date unknown'}</span><span>Archived {post.downloaded_at?.slice(0, 10) || 'unknown'}</span></span>
+                </span>
+              </button>
+              {!isGroupedMedia(post.type) ? (
+                <a className="card-download-btn visible" href={`/api/posts/${post.id}/download`} title="Download media" aria-label={`Download ${post.title || post.description || 'media'}`} download><DownloadGlyph /></a>
+              ) : null}
+            </article>
+          ))}
+        </div>
+  );
+});
+
 export default function MediaBrowser({ onNavigateToDownload }) {
   const [posts, setPosts] = useState([]);
   const [channels, setChannels] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [loadedPage, setLoadedPage] = useState(0);
+  const [searchQuery, setSearchQuery] = useState('');
+  const mediaController = useRef(null);
   const [limit, setLimit] = useState(36);
   const [search, setSearch] = useState('');
   const [selectedChannels, setSelectedChannels] = useState([]);
@@ -54,21 +90,22 @@ export default function MediaBrowser({ onNavigateToDownload }) {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const openRequestId = useRef(0);
 
+  const requestedPage = pendingNavigation?.page ?? page;
   const totalPages = Math.max(1, Math.ceil(total / limit));
   const activePostIndex = activePost
     ? posts.findIndex((post) => post.id === activePost.id)
     : -1;
-  const canNavigatePrevious = !pendingNavigation && activePostIndex >= 0
+  const canNavigatePrevious = !loading && !pendingNavigation && activePostIndex >= 0
     && (activePostIndex > 0 || page > 1);
-  const canNavigateNext = !pendingNavigation && activePostIndex >= 0
+  const canNavigateNext = !loading && !pendingNavigation && activePostIndex >= 0
     && (activePostIndex < posts.length - 1 || page < totalPages);
   const queryString = useMemo(() => {
     const params = new URLSearchParams({
-      page,
+      page: requestedPage,
       limit,
       sort,
       direction,
-      search,
+      search: searchQuery,
       channel_id: selectedChannels.join(','),
       type: selectedType,
       date_from: dateFrom,
@@ -76,9 +113,12 @@ export default function MediaBrowser({ onNavigateToDownload }) {
       missing_thumbnail: missingThumbnail ? '1' : '',
     });
     return params.toString();
-  }, [page, limit, sort, direction, search, selectedChannels, selectedType, dateFrom, dateTo, missingThumbnail]);
+  }, [requestedPage, limit, sort, direction, searchQuery, selectedChannels, selectedType, dateFrom, dateTo, missingThumbnail]);
 
-  const openPost = async (post) => {
+  const openPost = useCallback(async (post) => {
+    mediaController.current?.abort();
+    const controller = new AbortController();
+    mediaController.current = controller;
     const requestId = openRequestId.current + 1;
     openRequestId.current = requestId;
     setActivePost(post);
@@ -87,7 +127,7 @@ export default function MediaBrowser({ onNavigateToDownload }) {
     setMediaLoading(isGroupedMedia(post.type));
     if (!isGroupedMedia(post.type)) return;
     try {
-      const data = await requestJson(`/api/posts/${post.id}`, {}, 'Failed to load media files');
+      const data = await requestJson(`/api/posts/${post.id}`, { signal: controller.signal }, 'Failed to load media files');
       if (requestId !== openRequestId.current) return;
       setMediaFiles(data.media || []);
     } catch (requestError) {
@@ -96,9 +136,15 @@ export default function MediaBrowser({ onNavigateToDownload }) {
     } finally {
       if (requestId === openRequestId.current) setMediaLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => () => {
+    openRequestId.current += 1;
+    mediaController.current?.abort();
+  }, []);
 
   const closePost = () => {
+    mediaController.current?.abort();
     openRequestId.current += 1;
     setPendingNavigation(null);
     setActivePost(null);
@@ -107,37 +153,48 @@ export default function MediaBrowser({ onNavigateToDownload }) {
   };
 
   const handlePrevious = () => {
-    if (!activePost || pendingNavigation) return;
+    if (!activePost || pendingNavigation || loading) return;
     const index = posts.findIndex((post) => post.id === activePost.id);
+    if (index < 0) return;
     if (index > 0) void openPost(posts[index - 1]);
     else if (page > 1) {
       const targetPage = page - 1;
       setPendingNavigation({ edge: 'last', page: targetPage });
-      setPage(targetPage);
+      setError('');
     }
   };
 
   const handleNext = () => {
-    if (!activePost || pendingNavigation) return;
+    if (!activePost || pendingNavigation || loading) return;
     const index = posts.findIndex((post) => post.id === activePost.id);
+    if (index < 0) return;
     if (index < posts.length - 1) void openPost(posts[index + 1]);
     else if (page < totalPages) {
       const targetPage = page + 1;
       setPendingNavigation({ edge: 'first', page: targetPage });
-      setPage(targetPage);
+      setError('');
     }
   };
 
   useEffect(() => {
     let current = true;
-    setError('');
+    const controller = new AbortController();
     setLoading(true);
-    requestJson(`/api/posts?${queryString}`, {}, 'Failed to load archive')
+    requestJson(`/api/posts?${queryString}`, { signal: controller.signal }, 'Failed to load archive')
       .then((data) => {
         if (!current) return;
-        setPosts(data.posts || []);
+        const nextPosts = data.posts || [];
+        if (pendingNavigation) {
+          setPendingNavigation(null);
+          if (!nextPosts.length) {
+            setError('No more posts on this page. Close the viewer to refresh the archive.');
+            return;
+          }
+          void openPost(resolvePageNavigation(pendingNavigation, requestedPage, nextPosts));
+        }
+        setPage(requestedPage);
+        setPosts(nextPosts);
         setTotal(data.total || 0);
-        setLoadedPage(page);
       })
       .catch((requestError) => {
         if (current) {
@@ -150,8 +207,9 @@ export default function MediaBrowser({ onNavigateToDownload }) {
       });
     return () => {
       current = false;
+      controller.abort();
     };
-  }, [page, queryString]);
+  }, [queryString]);
 
   useEffect(() => {
     let current = true;
@@ -168,15 +226,17 @@ export default function MediaBrowser({ onNavigateToDownload }) {
   }, []);
 
   useEffect(() => {
-    const nextPost = resolvePageNavigation(pendingNavigation, loadedPage, posts);
-    if (!nextPost) return;
-    void openPost(nextPost);
-    setPendingNavigation(null);
-  }, [loadedPage, pendingNavigation, posts]);
+    if (search === searchQuery) return;
+    const timer = setTimeout(() => {
+      setSearchQuery(search);
+      setPage(1);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [search, searchQuery]);
 
   useEffect(() => {
     setPage(1);
-  }, [search, selectedChannels, selectedType, sort, direction, dateFrom, dateTo, missingThumbnail, limit]);
+  }, [selectedChannels, selectedType, sort, direction, dateFrom, dateTo, missingThumbnail, limit]);
 
   const toggleChannel = (id) => {
     setSelectedChannels((current) =>
@@ -253,35 +313,7 @@ export default function MediaBrowser({ onNavigateToDownload }) {
           </div>
         </div>
       ) : (
-        <div className={`media-grid density-${density}`}>
-          {posts.map((post) => (
-            <article key={post.id} className="media-card">
-              <button type="button" className="media-open" onClick={() => void openPost(post)}>
-                <span className="media-thumbnail-wrapper">
-                  <img
-                    src={post.thumbnail_path ? `/media/${post.thumbnail_path}` : fallbackThumb(post.type)}
-                    alt={post.title || post.description || post.id}
-                    className="media-thumbnail"
-                    loading="lazy"
-                    onError={(event) => {
-                      event.currentTarget.src = fallbackThumb(post.type);
-                    }}
-                  />
-                  <span className="media-open-glyph"><MediaGlyph type={post.type} /></span>
-                  <span className={`media-badge ${post.type}`}>{post.type}</span>
-                </span>
-                <span className="media-info">
-                  <span className="media-author">{displaySource(post.channel_id)}</span>
-                  <strong>{post.title || post.description || 'Untitled media'}</strong>
-                  <span className="media-meta"><span>{post.upload_date || 'Date unknown'}</span><span>Archived {post.downloaded_at?.slice(0, 10) || 'unknown'}</span></span>
-                </span>
-              </button>
-              {!isGroupedMedia(post.type) ? (
-                <a className="card-download-btn visible" href={`/api/posts/${post.id}/download`} title="Download media" aria-label={`Download ${post.title || post.description || 'media'}`} download><DownloadGlyph /></a>
-              ) : null}
-            </article>
-          ))}
-        </div>
+        <MediaGrid posts={posts} density={density} openPost={openPost} />
       )}
 
       {totalPages > 1 ? (
@@ -297,6 +329,8 @@ export default function MediaBrowser({ onNavigateToDownload }) {
           post={activePost}
           mediaFiles={mediaFiles}
           loading={mediaLoading}
+          navigating={Boolean(pendingNavigation)}
+          error={error}
           slideIndex={slideIndex}
           setSlideIndex={setSlideIndex}
           onClose={closePost}

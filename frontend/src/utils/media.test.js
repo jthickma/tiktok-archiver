@@ -36,3 +36,16 @@ test('resolvePageNavigation waits for the requested page before selecting an edg
   assert.equal(resolvePageNavigation(pending, 2, newPagePosts), newPagePosts[0]);
   assert.equal(resolvePageNavigation({ edge: 'last', page: 2 }, 2, newPagePosts), newPagePosts[1]);
 });
+
+
+test('page navigation does not wrap on empty results or after cancellation', () => {
+  assert.equal(resolvePageNavigation({ edge: 'first', page: 3 }, 3, []), null);
+  assert.equal(resolvePageNavigation(null, 2, [{ id: 'old' }]), null);
+});
+
+test('page navigation supports the last partial page and reverse navigation', () => {
+  const lastPage = [{ id: 'final-post' }];
+  assert.equal(resolvePageNavigation({ edge: 'first', page: 3 }, 3, lastPage), lastPage[0]);
+  const previousPage = [{ id: 'first' }, { id: 'last' }];
+  assert.equal(resolvePageNavigation({ edge: 'last', page: 2 }, 2, previousPage), previousPage[1]);
+});

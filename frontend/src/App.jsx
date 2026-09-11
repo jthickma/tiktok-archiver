@@ -143,7 +143,6 @@ export default function App() {
         <Brand />
 
         <nav className="primary-nav" aria-label="Primary navigation">
-          <span className="nav-eyebrow">Workspace</span>
           {tabs.map((tab) => (
             <button
               key={tab.id}
@@ -185,7 +184,6 @@ export default function App() {
 
         <header className="topbar">
           <div className="page-heading">
-            <span className="page-eyebrow">Media workspace</span>
             <h1>{activePage.label}</h1>
             <p>{activePage.description}</p>
           </div>
