@@ -79,15 +79,15 @@ export default function ArchiveFilters({
       <div className="archive-quickbar">
         <div className="segmented-control media-type-filter" aria-label="Media type">
           {MEDIA_TYPES.map((type) => (
-            <button key={type || 'all'} type="button" className={selectedType === type ? 'active' : ''} onClick={() => setSelectedType(type)}>
+            <button key={type || 'all'} type="button" className={selectedType === type ? 'active' : ''} onClick={() => setSelectedType(type)} aria-pressed={selectedType === type}>
               {type || 'all'}
             </button>
           ))}
         </div>
         <div className="segmented-control density-control" aria-label="Grid density">
           {DENSITIES.map((mode) => (
-            <button key={mode} type="button" className={density === mode ? 'active' : ''} onClick={() => setDensity(mode)}>
-              {mode}
+            <button key={({ dense: 'Small', compact: 'Medium', wide: 'Large' })[mode]} type="button" className={density === mode ? 'active' : ''} onClick={() => setDensity(mode)} aria-pressed={density === mode}>
+              {({ dense: 'Small', compact: 'Medium', wide: 'Large' })[mode]}
             </button>
           ))}
         </div>
@@ -130,7 +130,7 @@ export default function ArchiveFilters({
             <input type="checkbox" checked={missingThumbnail} onChange={(event) => setMissingThumbnail(event.target.checked)} />
             Missing thumbnail
           </label>
-          <button type="button" className="btn btn-secondary clear-filter-btn" onClick={clearFilters} disabled={filterCount === 0 && !search}>Reset filters</button>
+          <button type="button" className="btn btn-secondary clear-filter-btn" onClick={clearFilters} disabled={filterCount === 0 && !search && sort === 'upload_date' && direction === 'desc'}>Reset filters</button>
         </div>
 
         {channels.length > 0 ? (

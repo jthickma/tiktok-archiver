@@ -2,6 +2,7 @@ import { logger } from './logger.js';
 import { ApiError } from './validation.js';
 import { requireTikTokUsername } from './identity.js';
 import * as jobs from './repositories/job-repository.js';
+import { getPostById } from './repositories/post-repository.js';
 
 /**
  * Deep download queue module.
@@ -173,9 +174,7 @@ export const createDownloadQueue = ({ database, acquisition }) => {
     let newPostsCount = 0;
     for (const entry of entries) {
       if (!entry.id) continue;
-      const postExists = await get('SELECT id FROM posts WHERE id = ?', [
-        entry.id,
-      ]);
+      const postExists = await getPostById(get, entry.id);
       if (postExists) continue;
       const postUrl =
         entry.url ||

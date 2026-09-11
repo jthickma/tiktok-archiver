@@ -43,7 +43,7 @@ export const normalizeProfileUrl = (input) => {
   return `https://www.tiktok.com/${normalizeHandle(handleMatch[1])}`;
 };
 
-export const canonicalizeTikTokUrl = (input) => {
+const canonicalizeTikTokUrl = (input) => {
   const value = String(input || '').trim();
   if (!value) {
     throw new Error('URL is required');
@@ -71,7 +71,7 @@ export const canonicalizeTikTokUrl = (input) => {
   return url.toString();
 };
 
-export const canonicalizeHttpUrl = (input) => {
+const canonicalizeHttpUrl = (input) => {
   const value = String(input || '').trim();
   if (!value) {
     throw new Error('URL is required');
@@ -94,7 +94,7 @@ export const canonicalizeHttpUrl = (input) => {
   return url.toString();
 };
 
-export const canonicalizeStrictHttpUrl = (input) => {
+const canonicalizeStrictHttpUrl = (input) => {
   const value = String(input || '').trim();
   if (!value) {
     throw new Error('URL is required');

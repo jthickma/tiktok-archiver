@@ -3,7 +3,12 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { downloadQueue } from './queue.js';
+import { createDownloadQueue } from './download-queue.js';
+import {
+  downloadPost,
+  downloadWithGalleryDl,
+  scanProfile,
+} from './downloader.js';
 import { createMonitoredProfiles } from './channels.js';
 import { detectUrlType } from './identity.js';
 import { getSystemStatus } from './status.js';
@@ -21,7 +26,7 @@ import { createPostRoutes } from './routes/post-routes.js';
 import { createQueueRoutes } from './routes/queue-routes.js';
 import { createSystemRoutes } from './routes/system-routes.js';
 import { createArchiveRoutes } from './routes/archive-routes.js';
-import { initDb } from './database.js';
+import { database, initDb } from './database.js';
 import { archiveCatalog } from './archive-runtime.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -44,6 +49,15 @@ fs.mkdirSync(DATA_DIR, { recursive: true });
 fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
 
 app.use('/media', express.static(DOWNLOADS_DIR));
+
+const downloadQueue = createDownloadQueue({
+  database,
+  acquisition: {
+    scanProfile,
+    downloadPost,
+    downloadGallery: downloadWithGalleryDl,
+  },
+});
 
 const monitoredProfiles = createMonitoredProfiles({
   channelsFile: CHANNELS_FILE,

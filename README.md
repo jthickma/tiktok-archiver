@@ -8,7 +8,7 @@ TikTok Archiver is a self-hosted media archive for TikTok profiles, individual v
 - Scan monitored profiles every six hours and queue newly discovered posts.
 - Download individual TikTok video, photo slideshow, gallery, and generic supported URLs on demand.
 - Store archive metadata in SQLite at `data/tiktok.db`.
-- Store media files on disk under `downloads/@handle/`.
+- Store media files on disk under `downloads/username/`.
 - Browse, filter, preview, and download archived media from the web UI.
 - Save TikTok cookies in Netscape `cookies.txt` format for authenticated downloads.
 
@@ -20,13 +20,11 @@ TikTok Archiver is a self-hosted media archive for TikTok profiles, individual v
 |   |-- index.js        # Composition root and Express adapters
 |   |-- database.js     # SQLite adapter, migrations, and database healing
 |   |-- download-queue.js # Queue lifecycle, retries, cancellation, and dispatch
-|   |-- acquisition.js  # Small interface to media acquisition adapters
 |   |-- downloader.js   # yt-dlp, gallery-dl, direct HTTP, and persistence
 |   |-- channels.js     # Monitored Profiles reconciliation and scheduling
 |   |-- archive-catalog.js # Catalog-to-filesystem invariant and maintenance
 |   |-- validation.js   # API query/body parsing and standardized errors
-|   |-- status.js       # health, queue, tool, and storage checks
-|   `-- queue.js        # Compatibility exports for the Download Queue
+|   `-- status.js       # health, queue, tool, and storage checks
 |-- frontend/
 |   |-- src/App.jsx
 |   |-- src/components/
@@ -151,15 +149,18 @@ Downloaded media is stored by channel:
 
 ```text
 downloads/
-`-- @username/
-    |-- @username_2026-06-18_1234567890.mp4
-    |-- @username_2026-06-18_1234567890.jpg
+`-- username/
+    |-- username2026-06-181234567890.mp4
+    |-- username2026-06-181234567890.jpg
     `-- @username_1234567891/
         |-- @username_1234567891_image_1.jpg
         `-- @username_1234567891_image_2.jpg
 ```
 
-Video posts are stored as `@username_YYYY-MM-DD_postId.ext`. Slideshow folders and their files use the
+New video downloads are stored as `downloads/username/usernameYYYY-MM-DDpostId.mp4`,
+using the post's upload date, without a leading `@` or separators between the fields.
+Thumbnails share the video's base filename. Existing downloads keep their stored paths.
+Slideshow folders and their files use the
 `@username_postId` prefix. The post ID remains in each name because it is TikTok's stable unique key;
 numeric TikTok profile IDs are never used as archive names.
 

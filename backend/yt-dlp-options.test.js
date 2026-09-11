@@ -8,6 +8,7 @@ import {
 test('yt-dlp video selection only falls back to browser-compatible H.264', () => {
   const args = buildBrowserVideoArgs('/downloads/video.%(ext)s');
 
+  assert.equal(args[args.indexOf('--remux-video') + 1], 'mp4');
   assert.equal(args[args.indexOf('--format') + 1], BROWSER_VIDEO_FORMAT);
   assert.match(BROWSER_VIDEO_FORMAT, /vcodec\^=h264/);
   assert.doesNotMatch(BROWSER_VIDEO_FORMAT, /(?:^|\/)best(?:video)?(?:\+|\/|$)/);

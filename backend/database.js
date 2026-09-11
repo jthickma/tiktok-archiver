@@ -176,7 +176,7 @@ const parseMetadata = (metadataJson) => {
   }
 };
 
-export const healDatabase = async () => {
+const healDatabase = async () => {
   logger.info('database healing check started');
   try {
     // 1. Fetch all posts

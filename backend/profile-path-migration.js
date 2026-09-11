@@ -147,7 +147,7 @@ const rewriteSlideshowPath = (storedPath, oldDirectory, newDirectory, postPrefix
   return `${newDirectory}/${segments.join('/')}`;
 };
 
-export const findProfilePathMappings = (posts) => {
+const findProfilePathMappings = (posts) => {
   const mappings = new Map();
   for (const post of posts) {
     const numericProfile = String(post.file_path || '').split('/')[0];

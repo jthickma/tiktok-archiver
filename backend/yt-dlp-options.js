@@ -12,6 +12,8 @@ export const buildBrowserVideoArgs = (outTemplate) => [
   BROWSER_VIDEO_FORMAT,
   '--merge-output-format',
   'mp4',
+  '--remux-video',
+  'mp4',
   '--write-thumbnail',
   '--no-playlist',
   '--no-warnings',

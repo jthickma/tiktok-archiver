@@ -6,9 +6,8 @@ import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
 import { fileURLToPath } from 'url';
 import { archiveCatalog } from './archive-runtime.js';
-import { createVideoArchiveBase } from './archive-naming.js';
+import { createProfileArchiveDirectory, createVideoArchiveBase } from './archive-naming.js';
 import {
-  extractUsername as extractNormalizedUsername,
   isTikTokUrl,
   requireTikTokUsername,
 } from './identity.js';
@@ -89,8 +88,6 @@ else:
     sys.stderr.write(f"Unsupported mode: {mode}\n")
     sys.exit(4)
 `;
-
-export const extractUsername = extractNormalizedUsername;
 
 const registerProcess = (proc, options = {}) => {
   if (typeof options.onProcess === 'function') {
@@ -576,7 +573,7 @@ const downloadVscoGalleryDirect = async ({
 };
 
 // Fetch post metadata from yt-dlp without downloading
-export const getMetadata = (url, options = {}) => {
+const getMetadata = (url, options = {}) => {
   return new Promise((resolve, reject) => {
     const args = ['--dump-json', '--skip-download', '--no-warnings'];
     if (hasCookies()) args.push('--cookies', COOKIES_PATH);
@@ -695,7 +692,7 @@ export const downloadWithGalleryDl = async (
     context.title || context.metadata?.title || `${getHostname(url)} media`;
   const description =
     context.description || context.metadata?.description || title;
-  const sourceDir = safeSegment(channelId);
+  const sourceDir = createProfileArchiveDirectory(channelId);
   const postPrefix = safeSegment(`${channelId}_${postId}`);
   const itemDirName = channelId.startsWith('@')
     ? postPrefix
@@ -854,7 +851,7 @@ const downloadWithYtDlp = async (url, metadata, onProgress, options) => {
   const uploadDate = uploadDateFromMetadata(metadata);
   const title = metadata.title || `${getHostname(url)} media`;
   const description = metadata.description || title;
-  const channelDir = path.join(DOWNLOADS_DIR, safeSegment(channelId));
+  const channelDir = path.join(DOWNLOADS_DIR, createProfileArchiveDirectory(channelId));
   const outputBase = createVideoArchiveBase({
     creator: channelId,
     uploadDate,
@@ -890,7 +887,7 @@ const downloadWithYtDlp = async (url, metadata, onProgress, options) => {
 
   onProgress(80, 'Preserving file dates...');
   const files = collectMediaFiles(channelDir).filter((file) =>
-    path.basename(file).startsWith(outputBase),
+    path.basename(file).startsWith(`${outputBase}.`),
   );
   const primaryFile =
     files.find(isVideoFile) ||
