@@ -63,7 +63,7 @@ const MediaGrid = memo(function MediaGrid({ posts, density, openPost }) {
   );
 });
 
-export default function MediaBrowser({ onNavigateToDownload }) {
+export default function MediaBrowser({ onNavigateToDownload, channelId = '' }) {
   const [posts, setPosts] = useState([]);
   const [channels, setChannels] = useState([]);
   const [total, setTotal] = useState(0);
@@ -88,6 +88,7 @@ export default function MediaBrowser({ onNavigateToDownload }) {
   const [loading, setLoading] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
   const openRequestId = useRef(0);
 
   const requestedPage = pendingNavigation?.page ?? page;
@@ -106,14 +107,14 @@ export default function MediaBrowser({ onNavigateToDownload }) {
       sort,
       direction,
       search: searchQuery,
-      channel_id: selectedChannels.join(','),
+      channel_id: channelId || selectedChannels.join(','),
       type: selectedType,
       date_from: dateFrom,
       date_to: dateTo,
       missing_thumbnail: missingThumbnail ? '1' : '',
     });
     return params.toString();
-  }, [requestedPage, limit, sort, direction, searchQuery, selectedChannels, selectedType, dateFrom, dateTo, missingThumbnail]);
+  }, [requestedPage, limit, sort, direction, searchQuery, channelId, selectedChannels, selectedType, dateFrom, dateTo, missingThumbnail]);
 
   const openPost = useCallback(async (post) => {
     mediaController.current?.abort();
@@ -180,6 +181,7 @@ export default function MediaBrowser({ onNavigateToDownload }) {
     let current = true;
     const controller = new AbortController();
     setLoading(true);
+    setError('');
     requestJson(`/api/posts?${queryString}`, { signal: controller.signal }, 'Failed to load archive')
       .then((data) => {
         if (!current) return;
@@ -209,9 +211,10 @@ export default function MediaBrowser({ onNavigateToDownload }) {
       current = false;
       controller.abort();
     };
-  }, [queryString]);
+  }, [queryString, refreshKey]);
 
   useEffect(() => {
+    if (channelId) return;
     let current = true;
     requestJson('/api/channels', {}, 'Failed to load profiles')
       .then((data) => {
@@ -223,7 +226,7 @@ export default function MediaBrowser({ onNavigateToDownload }) {
     return () => {
       current = false;
     };
-  }, []);
+  }, [channelId]);
 
   useEffect(() => {
     if (search === searchQuery) return;
@@ -260,7 +263,7 @@ export default function MediaBrowser({ onNavigateToDownload }) {
 
   return (
     <div className="archive-console">
-      {error ? <div className="alert danger">{error}</div> : null}
+      {error ? <div className="alert danger" role="alert">{error} <button type="button" className="btn btn-secondary" onClick={() => setRefreshKey((value) => value + 1)}>Try again</button></div> : null}
       <ArchiveFilters
         search={search}
         setSearch={setSearch}
@@ -302,11 +305,11 @@ export default function MediaBrowser({ onNavigateToDownload }) {
             </div>
           ))}
         </div>
-      ) : posts.length === 0 ? (
+      ) : error && posts.length === 0 ? null : posts.length === 0 ? (
         <div className="empty-state archive-empty-state">
           <span className="empty-state-icon"><MediaGlyph type="video" /></span>
-          <h2>No media found</h2>
-          <p>Try clearing the current filters, or add a TikTok link to start filling your private archive.</p>
+          <h2>{channelId ? 'No archived media found for this profile' : 'No media found'}</h2>
+          <p>{channelId ? 'Try clearing the filters. Downloaded posts from this profile will appear here as they are archived.' : 'Try clearing the current filters, or add a TikTok link to start filling your private archive.'}</p>
           <div className="empty-state-actions">
             <button type="button" className="btn btn-secondary" onClick={clearFilters}>Clear filters</button>
             {onNavigateToDownload ? <button type="button" className="btn btn-primary" onClick={onNavigateToDownload}>Add a download</button> : null}

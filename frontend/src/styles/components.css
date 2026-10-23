@@ -197,6 +197,61 @@
 .strong-cell {
   font-weight: 800;
 }
+
+.channel-archive-link {
+  display: block;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-weight: 800;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.channel-archive-avatar {
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+}
+
+.channel-archive-link:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.channel-archive-link:focus-visible,
+.channel-archive-avatar:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+
+.profile-archive-header > .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.profile-archive-header .section-heading {
+  flex-wrap: wrap;
+  margin-bottom: 0;
+}
+
+.profile-archive-header h2 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  scroll-margin-top: 24px;
+}
+
+.profile-archive-header .section-heading > div {
+  min-width: 0;
+  flex: 1 1 220px;
+}
 .muted-link,
 .muted-cell {
   color: var(--muted);

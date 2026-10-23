@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import MediaBrowser from './MediaBrowser';
 import { requestJson } from '../utils/api';
 import { formatDateTime } from '../utils/format';
 
@@ -8,6 +9,27 @@ export default function ChannelManager({ onNavigateToQueue }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [selectedChannel, setSelectedChannel] = useState(null);
+  const archiveSection = useRef(null);
+  const archiveHeading = useRef(null);
+  const profileTrigger = useRef(null);
+  const profileScroll = useRef(0);
+
+  const openArchive = (channel, event) => {
+    profileTrigger.current = event.currentTarget;
+    profileScroll.current = window.scrollY;
+    setSelectedChannel(channel);
+  };
+
+  useEffect(() => {
+    if (selectedChannel) {
+      archiveHeading.current?.focus({ preventScroll: true });
+      archiveSection.current?.scrollIntoView({ block: 'start' });
+    } else if (profileTrigger.current) {
+      profileTrigger.current.focus({ preventScroll: true });
+      window.scrollTo({ top: profileScroll.current });
+    }
+  }, [selectedChannel]);
 
   const fetchChannels = async () => {
     const data = await requestJson('/api/channels', {}, 'Failed to load profiles');
@@ -82,6 +104,24 @@ export default function ChannelManager({ onNavigateToQueue }) {
 
   return (
     <div className="channel-console">
+      {selectedChannel ? (
+        <section className="profile-archive" aria-labelledby="profile-archive-heading" ref={archiveSection}>
+          <div className="panel profile-archive-header">
+            <button type="button" className="btn btn-secondary" onClick={() => setSelectedChannel(null)}>
+              <span aria-hidden="true">←</span> Back to profiles
+            </button>
+            <div className="section-heading">
+              <div>
+                <h2 id="profile-archive-heading" className="logo-text" tabIndex={-1} ref={archiveHeading}>@{selectedChannel.username}</h2>
+                <p>Archived media from this profile. Open any item to watch or view it.</p>
+              </div>
+              <a href={selectedChannel.url} target="_blank" rel="noopener noreferrer" className="btn btn-secondary">Open TikTok <span aria-hidden="true">↗</span></a>
+            </div>
+          </div>
+          <MediaBrowser key={selectedChannel.id} channelId={selectedChannel.id} />
+        </section>
+      ) : null}
+      <div hidden={Boolean(selectedChannel)}>
       <section className="panel">
         <div className="section-heading">
           <div>
@@ -116,7 +156,7 @@ export default function ChannelManager({ onNavigateToQueue }) {
         <div className="section-heading">
           <div>
             <h2 className="logo-text">Monitored profiles</h2>
-            <p>{channels.length} profiles tracked in channels.txt.</p>
+            <p>{channels.length} profiles tracked. Select a profile to browse its archived media.</p>
           </div>
         </div>
 
@@ -142,11 +182,11 @@ export default function ChannelManager({ onNavigateToQueue }) {
                   <tr key={chan.id}>
                     <td data-label="Profile">
                       <div className="channel-row-name">
-                        <div className="channel-avatar-fallback">
+                        <button type="button" className="channel-avatar-fallback channel-archive-avatar" onClick={(event) => openArchive(chan, event)} aria-label={`View archived media from @${chan.username}`}>
                           {chan.username.slice(0, 1).toUpperCase()}
-                        </div>
+                        </button>
                         <div>
-                          <div className="channel-name">@{chan.username}</div>
+                          <button type="button" className="channel-name channel-archive-link" onClick={(event) => openArchive(chan, event)} aria-label={`View archive for @${chan.username}`}>@{chan.username}</button>
                           <a href={chan.url} target="_blank" rel="noopener noreferrer" className="muted-link">
                             Open TikTok
                           </a>
@@ -166,6 +206,9 @@ export default function ChannelManager({ onNavigateToQueue }) {
                     </td>
                     <td data-label="Actions">
                       <div className="row-actions">
+                        <button type="button" className="btn btn-secondary" onClick={(event) => openArchive(chan, event)} aria-label={`View media from @${chan.username}`}>
+                          View media
+                        </button>
                         {chan.is_monitored ? (
                           <button type="button" className="btn btn-secondary danger-text" onClick={() => handleRemoveChannel(chan.id)}>
                             Stop
@@ -184,6 +227,7 @@ export default function ChannelManager({ onNavigateToQueue }) {
           </div>
         )}
       </section>
+      </div>
     </div>
   );
 }

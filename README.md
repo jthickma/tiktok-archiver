@@ -191,6 +191,11 @@ The Profiles tab manages monitored TikTok profiles. Adding a profile:
 
 Stopping monitoring keeps existing archived media and only sets the profile inactive.
 
+Select a profile's name, avatar, or **View media** button to browse that creator's
+archived media directly in Profiles. The gallery supports search, media filters,
+sorting, pagination, video playback, slideshows, and downloads. Filters stay scoped
+to that profile even when reset. **Back to profiles** returns to the list.
+
 ### Download
 
 The Download tab queues a single media URL. Auto mode turns TikTok profile URLs into `channel` jobs and downloads other media with `yt-dlp`, falling back to `gallery-dl` when needed. Selecting `gallery-dl` queues an explicit `gallery-dl` job for any HTTP or HTTPS URL supported by gallery-dl. Downloaded galleries appear in the archive for viewing and per-file downloads.
