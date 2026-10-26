@@ -1,6 +1,6 @@
 services:
   tiktok-archiver:
-    build: .
+    image: ghcr.io/jthickma/tiktok-archiver:latest
     container_name: tiktok-archiver
     ports:
       - "8080:8080"

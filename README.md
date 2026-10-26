@@ -59,7 +59,8 @@ The Docker image installs `python3`, `pip`, `ffmpeg`, `yt-dlp`, and `gallery-dl`
 ## Quick Start With Docker
 
 ```bash
-docker compose up --build
+docker compose pull
+docker compose up -d
 ```
 
 The app is exposed on the standard application port:
