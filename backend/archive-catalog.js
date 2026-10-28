@@ -79,6 +79,18 @@ export const createArchiveCatalog = ({ database, downloadsDir }) => {
     };
   };
 
+  const random = async (query) => {
+    const post = await posts.getRandomPost(get, query);
+    if (!post) {
+      throw new ApiError(
+        404,
+        'NOT_FOUND',
+        'No archived media matches the current filters',
+      );
+    }
+    return post;
+  };
+
   const detail = async (id) => {
     const post = await posts.getPostById(get, id);
     if (!post) throw new ApiError(404, 'NOT_FOUND', 'Post not found');
@@ -216,6 +228,7 @@ export const createArchiveCatalog = ({ database, downloadsDir }) => {
     save,
     search,
     detail,
+    random,
     resolveDownload,
     stats,
     orphans,

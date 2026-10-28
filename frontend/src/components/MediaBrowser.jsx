@@ -1,4 +1,5 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { formatDate } from '../utils/format';
 import { requestJson } from '../utils/api';
 import { displaySource, fallbackThumb, isGroupedMedia, resolvePageNavigation } from '../utils/media';
 import ArchiveFilters from './archive/ArchiveFilters';
@@ -51,7 +52,7 @@ const MediaGrid = memo(function MediaGrid({ posts, density, openPost }) {
                 <span className="media-info">
                   <span className="media-author">{displaySource(post.channel_id)}</span>
                   <strong>{post.title || post.description || 'Untitled media'}</strong>
-                  <span className="media-meta"><span>{post.upload_date || 'Date unknown'}</span><span>Archived {post.downloaded_at?.slice(0, 10) || 'unknown'}</span></span>
+                  <span className="media-meta"><span>Posted {formatDate(post.upload_date)}</span><span>Archived {formatDate(post.downloaded_at)}</span></span>
                 </span>
               </button>
               {!isGroupedMedia(post.type) ? (
@@ -88,6 +89,8 @@ export default function MediaBrowser({ onNavigateToDownload, channelId = '' }) {
   const [loading, setLoading] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [randomLoading, setRandomLoading] = useState(false);
+  const [randomError, setRandomError] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
   const openRequestId = useRef(0);
 
@@ -261,9 +264,41 @@ export default function MediaBrowser({ onNavigateToDownload, channelId = '' }) {
     setPage(1);
   };
 
+  const openRandom = async () => {
+    if (randomLoading) return;
+    setRandomLoading(true);
+    setRandomError('');
+    try {
+      const params = new URLSearchParams({
+        search: searchQuery,
+        channel_id: channelId || selectedChannels.join(','),
+        type: selectedType || 'video',
+        date_from: dateFrom,
+        date_to: dateTo,
+        missing_thumbnail: missingThumbnail ? '1' : '',
+      });
+      const post = await requestJson(
+        `/api/posts/random?${params}`,
+        {},
+        'Could not pick a random archive item',
+      );
+      await openPost(post);
+    } catch (requestError) {
+      setRandomError(requestError.message);
+    } finally {
+      setRandomLoading(false);
+    }
+  };
+
   return (
     <div className="archive-console">
       {error ? <div className="alert danger" role="alert">{error} <button type="button" className="btn btn-secondary" onClick={() => setRefreshKey((value) => value + 1)}>Try again</button></div> : null}
+      {randomError ? (
+        <div className="alert danger archive-random-error" role="alert">
+          <span>{randomError}</span>
+          <button type="button" className="btn btn-secondary" onClick={() => setRandomError('')}>Dismiss</button>
+        </div>
+      ) : null}
       <ArchiveFilters
         search={search}
         setSearch={setSearch}
@@ -289,9 +324,11 @@ export default function MediaBrowser({ onNavigateToDownload, channelId = '' }) {
         density={density}
         setDensity={setDensity}
         clearFilters={clearFilters}
+        onRandom={openRandom}
+        randomLoading={randomLoading}
       />
 
-      <div className="archive-results-meta" aria-live="polite">
+      <div className="archive-results-meta" role="status" aria-atomic="true">
         <span>{loading ? 'Updating archive…' : `${total.toLocaleString()} archived item${total === 1 ? '' : 's'}`}</span>
         <span>Page {page} of {totalPages}</span>
       </div>
@@ -342,6 +379,7 @@ export default function MediaBrowser({ onNavigateToDownload, channelId = '' }) {
           canPrevious={canNavigatePrevious}
           canNext={canNavigateNext}
           position={Math.max(1, ((page - 1) * limit) + activePostIndex + 1)}
+          positionLabel={activePostIndex < 0 ? 'Random pick' : null}
           pageSize={total}
         />
       ) : null}

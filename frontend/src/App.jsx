@@ -4,7 +4,6 @@ import ChannelManager from './components/ChannelManager';
 import DownloaderForm from './components/DownloaderForm';
 import CookieEditor from './components/CookieEditor';
 import LogQueue from './components/LogQueue';
-import SystemOverview from './components/SystemOverview';
 import { requestJson } from './utils/api';
 import { formatBytes } from './utils/format';
 
@@ -61,8 +60,14 @@ export default function App() {
 
   const navigate = (tabId) => {
     setActiveTab(tabId);
-    window.history.replaceState(null, '', `#${tabId}`);
+    if (window.location.hash !== `#${tabId}`) window.history.pushState(null, '', `#${tabId}`);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleNavigation = (event, tabId) => {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+    event.preventDefault();
+    navigate(tabId);
   };
 
   const fetchStatus = async () => {
@@ -85,7 +90,7 @@ export default function App() {
   useEffect(() => {
     const handleHashChange = () => {
       const nextTab = window.location.hash.replace('#', '');
-      if (tabs.some((tab) => tab.id === nextTab)) setActiveTab(nextTab);
+      setActiveTab(tabs.some((tab) => tab.id === nextTab) ? nextTab : 'browser');
     };
     const handleBeforeInstall = (event) => {
       event.preventDefault();
@@ -100,6 +105,7 @@ export default function App() {
     const handleUpdate = () => setUpdateReady(true);
 
     window.addEventListener('hashchange', handleHashChange);
+    window.addEventListener('popstate', handleHashChange);
     window.addEventListener('beforeinstallprompt', handleBeforeInstall);
     window.addEventListener('appinstalled', handleInstalled);
     window.addEventListener('online', handleOnline);
@@ -107,6 +113,7 @@ export default function App() {
     window.addEventListener('pwa:update-ready', handleUpdate);
     return () => {
       window.removeEventListener('hashchange', handleHashChange);
+      window.removeEventListener('popstate', handleHashChange);
       window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
       window.removeEventListener('appinstalled', handleInstalled);
       window.removeEventListener('online', handleOnline);
@@ -127,34 +134,41 @@ export default function App() {
   const toolsOk = Boolean(status?.tools) && Object.values(status.tools).every(Boolean);
   const storageOk = Boolean(status?.storage?.dataDirWritable && status?.storage?.downloadsDirWritable);
   const systemReady = isOnline && !status?.offline && toolsOk && storageOk;
+  const healthLabel = !isOnline ? 'Device offline'
+    : !status ? 'Checking system'
+    : status.offline ? 'Server unavailable'
+    : !systemReady ? 'Needs attention'
+    : status.queue?.isPaused ? 'Queue paused'
+    : 'System online';
   const activePage = useMemo(() => tabs.find((tab) => tab.id === activeTab) || tabs[0], [activeTab]);
 
   const renderContent = () => {
     if (activeTab === 'channels') return <ChannelManager onNavigateToQueue={() => navigate('queue')} />;
     if (activeTab === 'downloader') return <DownloaderForm onNavigateToQueue={() => navigate('queue')} />;
     if (activeTab === 'cookies') return <CookieEditor />;
-    if (activeTab === 'queue') return <LogQueue onQueueChanged={fetchStatus} />;
+    if (activeTab === 'queue') return <LogQueue onQueueChanged={fetchStatus} status={status} />;
     return <MediaBrowser onNavigateToDownload={() => navigate('downloader')} />;
   };
 
   return (
     <div className="app-shell">
+      <a className="skip-link" href="#main-content" onClick={(event) => { event.preventDefault(); document.getElementById('main-content')?.focus(); }}>Skip to content</a>
       <aside className="sidebar">
         <Brand />
 
         <nav className="primary-nav" aria-label="Primary navigation">
           {tabs.map((tab) => (
-            <button
+            <a
               key={tab.id}
-              type="button"
+              href={`#${tab.id}`}
               className={`nav-item ${activeTab === tab.id ? 'active' : ''}`}
-              onClick={() => navigate(tab.id)}
+              onClick={(event) => handleNavigation(event, tab.id)}
               aria-current={activeTab === tab.id ? 'page' : undefined}
             >
               <span className="nav-icon"><Icon name={tab.icon} /></span>
               <span>{tab.label}</span>
               {tab.id === 'queue' && activeTasks > 0 && <span className="nav-count">{activeTasks}</span>}
-            </button>
+            </a>
           ))}
         </nav>
 
@@ -165,17 +179,10 @@ export default function App() {
               <span><strong>Install app</strong><small>Open faster from your device</small></span>
             </button>
           )}
-          <div className="sidebar-status">
-            <span className={`status-dot ${systemReady ? 'success' : 'danger'}`} />
-            <span>
-              <strong>{!isOnline ? 'Device offline' : status?.offline ? 'Server unavailable' : status?.queue?.isPaused ? 'Queue paused' : 'System online'}</strong>
-              <small>{status?.server?.version ? `Version ${status.server.version}` : 'Self-hosted workspace'}</small>
-            </span>
-          </div>
         </div>
       </aside>
 
-      <main className="main-content">
+      <main id="main-content" className="main-content" tabIndex={-1}>
         {!isOnline && (
           <div className="connection-banner" role="status">
             You are offline. The app shell is available, but archive data and actions need the server.
@@ -189,12 +196,12 @@ export default function App() {
           </div>
           <div className="topbar-actions">
             <div className="topbar-status">
-              <span className={`live-indicator ${systemReady ? 'ready' : ''}`}>
-                <span /> {systemReady ? 'Ready' : 'Attention'}
+              <span className={`live-indicator ${systemReady ? 'ready' : ''}`} role="status" aria-atomic="true">
+                <span /> {healthLabel}
               </span>
               <span className="storage-readout">{formatBytes(status?.storage?.disk?.bytesFree)} free</span>
             </div>
-            <button type="button" className="icon-btn refresh-btn" onClick={fetchStatus} disabled={statusLoading}>
+            <button type="button" className="icon-btn refresh-btn" aria-label="Refresh system status" onClick={fetchStatus} disabled={statusLoading}>
               <Icon name="refresh" />
               <span>{statusLoading ? 'Refreshing' : 'Refresh'}</span>
             </button>
@@ -206,37 +213,18 @@ export default function App() {
           </div>
         </header>
 
-        <section className={`metrics-row ${activeTab === 'browser' ? 'archive-context-summary' : ''}`} aria-label="Queue summary">
-          {[
-            ['downloading', 'Downloading'],
-            ['pending', 'Waiting'],
-            ['failed', 'Needs attention'],
-            ['completed', 'Completed']
-          ].map(([key, label]) => (
-            <button type="button" className={`metric metric-${key}`} onClick={() => navigate('queue')} key={key}>
-              <span className="metric-label">{label}</span>
-              <span className="metric-value">{counts[key] || 0}</span>
-              <span className="metric-detail">View activity <span aria-hidden="true">→</span></span>
-            </button>
-          ))}
-        </section>
-
-        <div className={activeTab === 'browser' ? 'archive-context-summary' : ''}>
-          <SystemOverview status={status} />
-        </div>
-
-        <section className="content-view" aria-live="polite">
+        <section className="content-view">
           {renderContent()}
         </section>
       </main>
 
       <nav className="mobile-nav" aria-label="Mobile navigation">
         {tabs.map((tab) => (
-          <button
+          <a
             key={tab.id}
-            type="button"
+            href={`#${tab.id}`}
             className={`${activeTab === tab.id ? 'active' : ''} ${tab.id === 'downloader' ? 'primary-mobile-action' : ''}`}
-            onClick={() => navigate(tab.id)}
+            onClick={(event) => handleNavigation(event, tab.id)}
             aria-current={activeTab === tab.id ? 'page' : undefined}
           >
             <span className="mobile-nav-icon">
@@ -244,7 +232,7 @@ export default function App() {
               {tab.id === 'queue' && activeTasks > 0 && <span className="mobile-nav-count">{activeTasks}</span>}
             </span>
             <span>{tab.shortLabel}</span>
-          </button>
+          </a>
         ))}
       </nav>
 

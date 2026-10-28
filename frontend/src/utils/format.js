@@ -36,3 +36,13 @@ export const formatDurationBetween = (startIso, endIso, fallback = 'Unknown') =>
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return fallback;
   return formatDuration((end.getTime() - start.getTime()) / 1000);
 };
+
+// Date-only values are calendar dates, so do not shift them through a local timezone.
+export const formatDate = (value, fallback = 'unknown') => {
+  if (!value) return fallback;
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? new Date(`${value}T00:00:00`)
+    : new Date(value);
+  if (Number.isNaN(date.getTime())) return fallback;
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'short' }).format(date);
+};

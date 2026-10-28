@@ -54,8 +54,9 @@ export default function CookieEditor() {
 
         <form onSubmit={handleSave} className="stacked-form">
           <div className="form-group">
-            <label className="form-label">cookies.txt</label>
+            <label className="form-label" htmlFor="cookies-text">cookies.txt</label>
             <textarea
+              id="cookies-text"
               className="cookies-textarea"
               placeholder="# Netscape HTTP Cookie File&#10;.tiktok.com	TRUE	/	TRUE	1716503990	sessionid	xyz123abc..."
               value={cookies}
@@ -74,8 +75,8 @@ export default function CookieEditor() {
           </div>
         </form>
 
-        {message && <div className="alert success">{message}</div>}
-        {error && <div className="alert danger">{error}</div>}
+        {message && <div className="alert success" role="status">{message}</div>}
+        {error && <div className="alert danger" role="alert">{error}</div>}
       </section>
 
       <section className="panel compact-panel">

@@ -1,9 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
+import ConfirmDialog from './ConfirmDialog';
 import MediaBrowser from './MediaBrowser';
 import { requestJson } from '../utils/api';
 import { formatDateTime } from '../utils/format';
 
 export default function ChannelManager({ onNavigateToQueue }) {
+  const [stopProfile, setStopProfile] = useState(null);
   const [channels, setChannels] = useState([]);
   const [newUrl, setNewUrl] = useState('');
   const [loading, setLoading] = useState(false);
@@ -73,21 +75,13 @@ export default function ChannelManager({ onNavigateToQueue }) {
   };
 
   const handleRemoveChannel = async (channelId) => {
-    if (!confirm(`Stop monitoring ${channelId}? Existing downloaded media will not be deleted.`)) {
-      return;
-    }
-
     setError('');
     setMessage('');
-    try {
-      await requestJson(`/api/channels/${encodeURIComponent(channelId)}`, {
-        method: 'DELETE'
-      }, 'Failed to stop monitoring profile');
-      setMessage(`${channelId} monitoring stopped.`);
-      await fetchChannels();
-    } catch (err) {
-      setError(err.message);
-    }
+    await requestJson(`/api/channels/${encodeURIComponent(channelId)}`, {
+      method: 'DELETE'
+    }, 'Failed to stop monitoring profile');
+    setMessage(`${channelId} monitoring stopped.`);
+    await fetchChannels();
   };
 
   const handleRemonitor = async (url) => {
@@ -104,6 +98,7 @@ export default function ChannelManager({ onNavigateToQueue }) {
 
   return (
     <div className="channel-console">
+      {stopProfile !== null && <ConfirmDialog title="Stop monitoring profile?" message={`Stop checking ${stopProfile} for new posts? Existing archived media will be kept.`} confirmLabel="Stop monitoring" onConfirm={() => handleRemoveChannel(stopProfile)} onClose={() => setStopProfile(null)} />}
       {selectedChannel ? (
         <section className="profile-archive" aria-labelledby="profile-archive-heading" ref={archiveSection}>
           <div className="panel profile-archive-header">
@@ -132,8 +127,9 @@ export default function ChannelManager({ onNavigateToQueue }) {
 
         <form onSubmit={handleAddChannel} className="inline-action-form">
           <div className="form-group grow-field">
-            <label className="form-label">TikTok profile URL or @handle</label>
+            <label className="form-label" htmlFor="profile-url">TikTok profile URL or @handle</label>
             <input
+              id="profile-url"
               type="text"
               className="text-input"
               placeholder="@khaby.lame"
@@ -148,8 +144,8 @@ export default function ChannelManager({ onNavigateToQueue }) {
           </button>
         </form>
 
-        {message && <div className="alert success">{message}</div>}
-        {error && <div className="alert danger">{error}</div>}
+        {message && <div className="alert success" role="status">{message}</div>}
+        {error && <div className="alert danger" role="alert">{error}</div>}
       </section>
 
       <section className="panel">
@@ -210,7 +206,7 @@ export default function ChannelManager({ onNavigateToQueue }) {
                           View media
                         </button>
                         {chan.is_monitored ? (
-                          <button type="button" className="btn btn-secondary danger-text" onClick={() => handleRemoveChannel(chan.id)}>
+                          <button type="button" className="btn btn-secondary danger-text" onClick={() => setStopProfile(chan.id)}>
                             Stop
                           </button>
                         ) : (

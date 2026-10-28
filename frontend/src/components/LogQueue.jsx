@@ -1,4 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import ConfirmDialog from './ConfirmDialog';
+import SystemOverview from './SystemOverview';
+import { usePolling } from '../utils/usePolling';
 import { requestJson } from '../utils/api';
 import { formatDateTime, formatDurationBetween } from '../utils/format';
 import { readableUrl } from '../utils/media';
@@ -73,7 +76,8 @@ function JobRow({ job, selected, onSelect, onAction }) {
   );
 }
 
-export default function LogQueue({ onQueueChanged }) {
+export default function LogQueue({ onQueueChanged, status }) {
+  const [confirmation, setConfirmation] = useState(null);
   const [activeJobs, setActiveJobs] = useState([]);
   const [historyJobs, setHistoryJobs] = useState([]);
   const [state, setState] = useState({ isPaused: false });
@@ -83,52 +87,65 @@ export default function LogQueue({ onQueueChanged }) {
   const [typeFilter, setTypeFilter] = useState('');
   const [summary, setSummary] = useState({ counts: {} });
   const [actionError, setActionError] = useState('');
+  const [queueError, setQueueError] = useState('');
   const terminalRef = useRef(null);
 
-  const fetchQueue = async () => {
-    const params = new URLSearchParams({ status: statusFilter, type: typeFilter });
-    const data = await requestJson(`/api/queue?${params}`, {}, 'Failed to load queue');
-    setActiveJobs(data.active || []);
-    setHistoryJobs(data.history || []);
-    setState(data.state || {});
-    setSummary(data.summary || { counts: {} });
-    if (selectedJob) {
-      const latest = [...(data.active || []), ...(data.history || [])].find((job) => job.id === selectedJob.id);
-      if (latest) setSelectedJob(latest);
+  const fetchQueue = useCallback(async (signal) => {
+    try {
+      const params = new URLSearchParams({ status: statusFilter, type: typeFilter });
+      const data = await requestJson(`/api/queue?${params}`, { signal }, 'Failed to load queue');
+      if (signal?.aborted) return;
+      setActiveJobs(data.active || []);
+      setHistoryJobs(data.history || []);
+      setState(data.state || {});
+      setSummary(data.summary || { counts: {} });
+      setQueueError('');
+      setSelectedJob((selected) => selected
+        ? [...(data.active || []), ...(data.history || [])].find((job) => job.id === selected.id) || null
+        : null);
+    } catch (error) {
+      if (!signal?.aborted) setQueueError(error.message);
     }
-  };
+  }, [statusFilter, typeFilter]);
 
-  const fetchLogs = async (jobId) => {
-    const data = await requestJson(`/api/queue/${jobId}/logs`, {}, 'Failed to load job logs');
-    setJobLogs(data.logs || 'No log output yet.');
-  };
+  const selectedId = selectedJob?.id;
+  const fetchLogs = useCallback(async (signal) => {
+    try {
+      const data = await requestJson(`/api/queue/${selectedId}/logs`, { signal }, 'Failed to load job logs');
+      if (!signal.aborted) setJobLogs(data.logs || 'No log output yet.');
+    } catch (error) {
+      if (!signal.aborted) setJobLogs(error.message);
+    }
+  }, [selectedId]);
 
   const runAction = async (path, method = 'POST') => {
     await requestJson(path, { method }, 'Queue action failed');
     setActionError('');
+    if (method === 'DELETE') setSelectedJob(null);
     await fetchQueue();
     onQueueChanged?.();
   };
 
   const handleAction = (path, method = 'POST') => {
+    if (method === 'DELETE' || path.endsWith('/cancel')) {
+      const clearing = path.endsWith('/history/completed');
+      const cancelling = path.endsWith('/cancel');
+      setConfirmation({
+        title: clearing ? 'Clear completed history?' : cancelling ? 'Cancel this job?' : 'Delete this history entry?',
+        message: clearing ? 'Remove all completed and cancelled job entries and their logs. Archived media will be kept.' : cancelling ? 'Stop this download or remove it from the waiting queue.' : 'Remove this job entry and its logs. Archived media will be kept.',
+        label: clearing ? 'Clear completed' : cancelling ? 'Cancel job' : 'Delete entry',
+        path,
+        method,
+      });
+      return;
+    }
     runAction(path, method).catch((err) => setActionError(err.message));
   };
 
-  useEffect(() => {
-    fetchQueue().catch(console.error);
-    const interval = setInterval(() => fetchQueue().catch(console.error), 1500);
-    return () => clearInterval(interval);
-  }, [statusFilter, typeFilter]);
+  usePolling(fetchQueue, activeJobs.length > 0 ? 3000 : 10000);
+  usePolling(fetchLogs, selectedJob?.status === 'downloading' || selectedJob?.status === 'pending' ? 3000 : null, Boolean(selectedId));
 
-  useEffect(() => {
-    if (!selectedJob) {
-      setJobLogs('');
-      return undefined;
-    }
-    fetchLogs(selectedJob.id).catch(console.error);
-    const interval = setInterval(() => fetchLogs(selectedJob.id).catch(console.error), 1500);
-    return () => clearInterval(interval);
-  }, [selectedJob?.id]);
+  useEffect(() => { setJobLogs(''); }, [selectedId]);
 
   useEffect(() => {
     if (terminalRef.current) terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
@@ -140,13 +157,19 @@ export default function LogQueue({ onQueueChanged }) {
 
   return (
     <div className="queue-console">
-      {actionError && <div className="alert danger">{actionError}</div>}
+      {confirmation && <ConfirmDialog title={confirmation.title} message={confirmation.message} confirmLabel={confirmation.label} onConfirm={() => runAction(confirmation.path, confirmation.method)} onClose={() => setConfirmation(null)} />}
+      <details className="system-details">
+        <summary>System details</summary>
+        <SystemOverview status={status} />
+      </details>
+      {queueError && <div className="alert danger" role="alert">{queueError}</div>}
+      {actionError && <div className="alert danger" role="alert">{actionError}</div>}
 
       <div className="queue-summary" aria-label="Queue summary">
         {['downloading', 'pending', 'failed', 'completed'].map((status) => (
           <span key={status} className={`queue-summary-chip ${jobStatusTone(status)}`}>
             <strong>{counts[status] || 0}</strong>
-            {status}
+            {({ downloading: 'Downloading', pending: 'Waiting', failed: 'Failed', completed: 'Completed' })[status]}
           </span>
         ))}
       </div>
@@ -155,10 +178,10 @@ export default function LogQueue({ onQueueChanged }) {
         <div className="segmented-control">
           <button type="button" className={!statusFilter ? 'active' : ''} onClick={() => setStatusFilter('')}>History</button>
           {terminalStatuses.map((status) => (
-            <button key={status} type="button" className={statusFilter === status ? 'active' : ''} onClick={() => setStatusFilter(status)}>{status}</button>
+            <button key={status} type="button" className={statusFilter === status ? 'active' : ''} onClick={() => setStatusFilter(status)}>{status[0].toUpperCase() + status.slice(1)}</button>
           ))}
         </div>
-        <select className="select-input" value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}>
+        <select className="select-input" aria-label="Activity type" value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}>
           <option value="">All types</option>
           <option value="channel">Channels</option>
           <option value="post">Downloads</option>
@@ -225,7 +248,7 @@ export default function LogQueue({ onQueueChanged }) {
               <button type="button" className="icon-btn" onClick={() => setSelectedJob(null)}>Close</button>
             </div>
             <pre ref={terminalRef} className="terminal-panel">{jobLogs}</pre>
-            {selectedJob.error_message && <div className="alert danger">{selectedJob.error_message}</div>}
+            {selectedJob.error_message && <div className="alert danger" role="alert">{selectedJob.error_message}</div>}
           </aside>
         )}
       </div>

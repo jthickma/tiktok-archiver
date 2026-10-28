@@ -220,6 +220,7 @@ On startup, any interrupted `downloading` jobs are recovered back to `pending` w
 | `POST` | `/api/channels` | Add or reactivate a monitored profile |
 | `DELETE` | `/api/channels/:id` | Stop monitoring a profile |
 | `GET` | `/api/posts` | List archived posts with pagination and filters |
+| `GET` | `/api/posts/random` | Pick one random post matching the supplied filters |
 | `GET` | `/api/posts/:id` | Get post details and downloaded media file list |
 | `GET` | `/api/posts/:id/download` | Download one post media file |
 | `GET` | `/api/posts/:id/files/:index/download` | Download one file from a gallery-style archive item |
@@ -240,7 +241,9 @@ On startup, any interrupted `downloading` jobs are recovered back to `pending` w
 - The queue currently runs in-process and processes one job at a time.
 - Job logs are kept in `download_job_logs` and the legacy `log_output` field is capped to avoid unbounded row growth.
 - A background monitor starts immediately on boot and repeats every six hours.
-- The main UI status overview reads `/api/status` and shows worker, monitor, downloader-tool, storage, and uptime state.
+- The header shows one health signal from `/api/status`. Activity → System details contains worker, monitor, downloader-tool, storage, and uptime state.
+- Navigation uses hash links with browser Back/Forward support. A keyboard skip link moves directly to the current view.
+- Activity polls every three seconds while jobs are active and every ten seconds while idle; queue and log polling pause in hidden tabs. Stop, Cancel, Delete, and Clear completed use a confirmation dialog before changing records.
 - The Docker image healthcheck also reads `/api/status`.
 - The server serves `/media/*` directly from `DOWNLOADS_DIR`.
 - Production frontend files are served by the backend when `frontend/dist` exists.

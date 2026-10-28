@@ -84,6 +84,23 @@ export const searchPosts = (dbAll, dbGet, query) => {
 };
 
 /**
+ * Pick one random post matching the filters. Posts without a stored file are
+ * skipped so the viewer always has something it can open.
+ * @param {Function} dbGet
+ * @param {Object} filters - PostsQuery-like filter object
+ * @returns {Promise<Object|null>}
+ */
+export const getRandomPost = (dbGet, filters) => {
+  const { where, params } = buildWhere(filters);
+  return dbGet(
+    `SELECT * FROM posts ${where}
+       AND file_path IS NOT NULL AND file_path != ''
+     ORDER BY RANDOM() LIMIT 1`,
+    params,
+  ).then((row) => row || null);
+};
+
+/**
  * Get a single post by its ID.
  * @param {Function} dbGet
  * @param {string} id

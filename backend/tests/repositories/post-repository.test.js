@@ -5,6 +5,7 @@ import sqlite3 from 'sqlite3';
 import {
   searchPosts,
   getPostById,
+  getRandomPost,
   insertPost,
   updatePostThumbnail,
   getPostCount,
@@ -236,6 +237,23 @@ describe('post-repository', () => {
       missingThumbnail: false,
     });
     assert.equal(result.total, 0);
+  });
+
+  it('getRandomPost returns a matching post and null when nothing matches', async () => {
+    const filters = {
+      channelIds: [],
+      type: 'slideshow',
+      search: '',
+      dateFrom: '',
+      dateTo: '',
+      missingThumbnail: false,
+    };
+    const post = await getRandomPost(dbGet, filters);
+    assert.equal(post.id, 'post2');
+    assert.ok(post.file_path);
+
+    const noMatch = await getRandomPost(dbGet, { ...filters, type: 'video' });
+    assert.equal(noMatch, null);
   });
 
   it('getStorageStats returns aggregate stats', async () => {

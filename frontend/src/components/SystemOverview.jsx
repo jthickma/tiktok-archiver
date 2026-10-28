@@ -37,7 +37,6 @@ export default function SystemOverview({ status }) {
       <OpsItem
         label="Worker"
         value={status.queue?.isPaused ? 'Paused' : status.queue?.isProcessing ? 'Running' : 'Idle'}
-        detail={`${status.queue?.activeJobIds?.length || 0} active process${status.queue?.activeJobIds?.length === 1 ? '' : 'es'}`}
         tone={status.queue?.isPaused ? 'warn' : 'ok'}
       />
       <OpsItem
@@ -48,14 +47,14 @@ export default function SystemOverview({ status }) {
       />
       <OpsItem
         label="Tools"
-        value={missingTools.length === 0 ? 'Ready' : `${missingTools.length} missing`}
+        value={missingTools.length === 0 ? 'Installed' : `${missingTools.length} missing`}
         detail={missingTools.length === 0 ? tools.map(([name]) => toolLabel[name] || name).join(', ') : missingTools.join(', ')}
         tone={missingTools.length === 0 ? 'ok' : 'warn'}
       />
       <OpsItem
         label="Storage"
-        value={storageBlocked ? 'Blocked' : 'Writable'}
-        detail={diskUsedPercent === null ? `Free ${formatBytes(disk?.bytesFree)}` : `${diskUsedPercent}% used / ${formatBytes(disk.bytesFree)} free`}
+        value={storageBlocked ? 'Blocked' : diskUsedPercent === null ? 'Usage unknown' : `${diskUsedPercent}% used`}
+        detail={`${formatBytes(disk?.bytesFree)} free`}
         tone={storageBlocked ? 'danger' : 'ok'}
       />
       <OpsItem

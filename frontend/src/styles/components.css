@@ -1,34 +1,3 @@
-/* Media grid */
-.media-grid {
-  display: grid;
-  gap: 10px;
-  margin-top: 12px;
-}
-
-.media-grid.density-dense {
-  grid-template-columns: repeat(auto-fill, minmax(138px, 1fr));
-}
-.media-grid.density-compact {
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-}
-.media-grid.density-wide {
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-}
-
-.media-card {
-  position: relative;
-  min-width: 0;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--panel);
-}
-
-.media-card.selected {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent);
-}
-
 .media-open {
   width: 100%;
   padding: 0;
@@ -39,13 +8,6 @@
   text-align: left;
 }
 
-.media-thumbnail-wrapper {
-  position: relative;
-  display: block;
-  aspect-ratio: 3 / 4;
-  background: #0d0f13;
-}
-
 .media-thumbnail {
   width: 100%;
   height: 100%;
@@ -54,64 +16,18 @@
 }
 
 .media-badge,
-.card-select,
 .card-download-btn {
   position: absolute;
   z-index: 2;
-}
-
-.media-badge {
-  top: 8px;
-  right: 8px;
-  padding: 4px 7px;
-  border-radius: 6px;
-  background: rgba(16, 18, 22, 0.86);
-  color: var(--text);
-  font-size: 11px;
-  font-weight: 800;
-  text-transform: uppercase;
 }
 
 .media-badge.slideshow {
   color: var(--accent-2);
 }
 
-.card-select {
-  top: 8px;
-  left: 8px;
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: rgba(16, 18, 22, 0.86);
-  color: var(--accent);
-  cursor: pointer;
-}
-
-.card-download-btn {
-  right: 8px;
-  bottom: 8px;
-  width: 34px;
-  height: 34px;
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: rgba(16, 18, 22, 0.9);
-  color: var(--text);
-  text-decoration: none;
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.media-info {
-  display: grid;
-  gap: 5px;
-  padding: 10px;
-}
-
 .media-info strong {
   display: -webkit-box;
-  min-height: 38px;
+  min-height: 2.5em;
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -121,7 +37,6 @@
 
 .media-author,
 .media-meta {
-  color: var(--muted);
   font-size: 12px;
 }
 
@@ -140,13 +55,6 @@
 }
 
 /* Empty state */
-.empty-state {
-  padding: 34px 16px;
-  border: 1px dashed var(--line);
-  border-radius: var(--radius);
-  color: var(--muted);
-  text-align: center;
-}
 
 .empty-state.compact {
   padding: 18px 12px;
@@ -159,14 +67,6 @@
 }
 .table-scroll {
   overflow-x: auto;
-}
-
-.channel-table th,
-.channel-table td {
-  padding: 10px;
-  border-bottom: 1px solid var(--line);
-  text-align: left;
-  vertical-align: middle;
 }
 
 .channel-table th {
@@ -183,8 +83,8 @@
 
 .channel-avatar-fallback {
   display: inline-flex;
-  width: 34px;
-  height: 34px;
+  width: 44px;
+  height: 44px;
   align-items: center;
   justify-content: center;
   border-radius: 8px;
@@ -201,7 +101,8 @@
 .channel-archive-link {
   display: block;
   max-width: 100%;
-  padding: 0;
+  min-height: 44px;
+  padding: 4px 0;
   border: 0;
   background: transparent;
   color: var(--text);
@@ -284,7 +185,7 @@
   color: var(--muted);
 }
 
-.danger-text {
+.btn.danger-text {
   color: var(--danger);
 }
 
@@ -330,37 +231,38 @@
   line-height: 1.65;
 }
 
-/* Profile filter */
-.profile-filter {
-  margin-bottom: 12px;
-  max-height: 82px;
-  overflow: auto;
-}
-
-.profile-filter button {
-  min-height: 32px;
-  padding: 6px 10px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--panel);
-  color: var(--muted);
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.profile-filter button.active {
-  background: var(--panel-2);
-  color: var(--text);
-}
-
 /* Icon button */
 .btn-icon {
   flex-shrink: 0;
 }
 
-/* Modal container */
-.modal-container {
-  min-height: 100dvh;
-  max-height: 100dvh;
-  border-radius: 0;
+.confirm-dialog {
+  width: min(460px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  padding: 24px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+.confirm-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.75);
+}
+
+.confirm-dialog h2 {
+  margin: 0 0 12px;
+  font-size: 20px;
+}
+
+.confirm-dialog p {
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.confirm-dialog .form-actions {
+  justify-content: flex-end;
+  margin-top: 24px;
 }

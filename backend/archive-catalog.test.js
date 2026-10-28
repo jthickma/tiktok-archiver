@@ -14,6 +14,7 @@ test('archive catalog keeps row and media-file behavior behind one interface', a
   t.after(() => fs.rmSync(downloadsDir, { recursive: true, force: true }));
   fs.mkdirSync(path.join(downloadsDir, '@alice'), { recursive: true });
   fs.writeFileSync(path.join(downloadsDir, '@alice', 'post.jpg'), 'image');
+  fs.writeFileSync(path.join(downloadsDir, '@alice', 'video.mp4'), 'video');
   fs.writeFileSync(path.join(downloadsDir, '@alice', 'orphan.jpg'), 'orphan');
 
   const database = createTestDatabase();
@@ -29,7 +30,27 @@ test('archive catalog keeps row and media-file behavior behind one interface', a
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ['1', '@alice', 'image', 'Post', '', 'https://example.com/1', '2026-01-01', '@alice/post.jpg', '@alice/post.jpg', new Date().toISOString(), '{}'],
   );
+  await database.run(
+    `INSERT INTO posts
+     (id, channel_id, type, title, description, url, upload_date, file_path, thumbnail_path, downloaded_at, metadata_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ['2', '@alice', 'video', 'Clip', '', 'https://example.com/2', '2026-01-02', '@alice/video.mp4', '', new Date().toISOString(), '{}'],
+  );
   const catalog = createArchiveCatalog({ database, downloadsDir });
+
+  const filters = {
+    channelIds: [],
+    search: '',
+    dateFrom: '',
+    dateTo: '',
+    missingThumbnail: false,
+  };
+  const random = await catalog.random({ ...filters, type: 'video' });
+  assert.equal(random.id, '2');
+  await assert.rejects(
+    () => catalog.random({ ...filters, type: 'audio' }),
+    /No archived media matches/,
+  );
 
   const detail = await catalog.detail('1');
   assert.equal(detail.media[0].path, '@alice/post.jpg');

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
-import { formatDateTime } from '../../utils/format';
+import { formatDate, formatDateTime } from '../../utils/format';
 import {
   avatarText,
   displaySource,
@@ -22,6 +22,7 @@ export default function ArchiveViewer({
   canPrevious,
   canNext,
   position,
+  positionLabel,
   pageSize,
 }) {
   const grouped = isGroupedMedia(post.type);
@@ -162,8 +163,11 @@ export default function ArchiveViewer({
         <div className="media-player-layout">
           <div className="media-viewer-pane" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
             <div className="viewer-context">
-              <span role="status">{navigating ? 'Loading page…' : `${position} of ${pageSize}`}</span>
-              <span className="viewer-shortcuts">← → browse · space play/pause · esc close</span>
+              <span role="status">{navigating ? 'Loading page…' : positionLabel || `${position} of ${pageSize}`}</span>
+              <span className="viewer-shortcuts">
+                {grouped && slideCount > 1 ? '← → slides · ' : positionLabel ? '' : '← → browse · '}
+                space play/pause · esc close
+              </span>
             </div>
             <button
               type="button"
@@ -263,7 +267,7 @@ export default function ArchiveViewer({
               </div>
               <details className="post-stats-section">
                 <summary>File details</summary>
-                <div className="stat-row"><span className="stat-label">Upload Date</span><span className="stat-value">{post.upload_date || 'Unknown'}</span></div>
+                <div className="stat-row"><span className="stat-label">Upload Date</span><span className="stat-value">{formatDate(post.upload_date, 'Unknown')}</span></div>
                 <div className="stat-row"><span className="stat-label">Archived At</span><span className="stat-value">{formatDateTime(post.downloaded_at, 'Unknown')}</span></div>
                 <div className="stat-row"><span className="stat-label">File Name</span><span className="stat-value file-path-text" title={post.file_path}>{post.file_path?.split('/').pop() || 'Unknown'}</span></div>
               </details>
@@ -278,8 +282,14 @@ export default function ArchiveViewer({
                 <div className="slideshow-download-fallback-message">Media files are stored in: <code className="slide-dir-code">{post.file_path}</code></div>
               )}
               <div className="post-navigation">
-                <button type="button" className="btn btn-secondary post-nav-btn" onClick={onPrevious} disabled={!canPrevious}>‹ Previous post</button>
-                <button type="button" className="btn btn-secondary post-nav-btn" onClick={onNext} disabled={!canNext}>Next post ›</button>
+                {!positionLabel ? (
+                  <>
+                    <button type="button" className="btn btn-secondary post-nav-btn" onClick={onPrevious} disabled={!canPrevious}>‹ Previous post</button>
+                    <button type="button" className="btn btn-secondary post-nav-btn" onClick={onNext} disabled={!canNext}>Next post ›</button>
+                  </>
+                ) : (
+                  <button type="button" className="btn btn-secondary post-nav-btn" onClick={onClose}>Back to archive</button>
+                )}
               </div>
             </div>
           </div>

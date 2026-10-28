@@ -13,6 +13,18 @@ function FilterIcon() {
   );
 }
 
+function ShuffleIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M2 18h1.4c1.3 0 2.5-.6 3.3-1.7l6.1-8.6c.8-1.1 2-1.7 3.3-1.7H22" />
+      <path d="m18 2 4 4-4 4" />
+      <path d="M2 6h1.9c1.5 0 2.9.7 3.7 1.9" />
+      <path d="M22 18h-5.9c-1.3 0-2.6-.7-3.3-1.8l-.5-.8" />
+      <path d="m18 14 4 4-4 4" />
+    </svg>
+  );
+}
+
 export default function ArchiveFilters({
   search,
   setSearch,
@@ -38,6 +50,8 @@ export default function ArchiveFilters({
   density,
   setDensity,
   clearFilters,
+  onRandom,
+  randomLoading,
 }) {
   const filterCount = [
     selectedType,
@@ -46,6 +60,9 @@ export default function ArchiveFilters({
     dateTo,
     missingThumbnail,
   ].filter(Boolean).length;
+  const randomAction = selectedType && selectedType !== 'video'
+    ? `Open a random ${selectedType}`
+    : 'Play a random video from the archive';
 
   return (
     <section className="archive-controls" aria-label="Archive controls">
@@ -65,6 +82,18 @@ export default function ArchiveFilters({
         </label>
         <button
           type="button"
+          className="btn btn-secondary random-btn"
+          onClick={onRandom}
+          disabled={randomLoading}
+          aria-busy={randomLoading}
+          aria-label={randomAction}
+          title={randomAction}
+        >
+          <ShuffleIcon />
+          <span className="random-btn-label">{randomLoading ? 'Finding…' : 'Random'}</span>
+        </button>
+        <button
+          type="button"
           className={`btn btn-secondary archive-filter-toggle ${filtersOpen ? 'active' : ''}`}
           onClick={() => setFiltersOpen((open) => !open)}
           aria-expanded={filtersOpen}
@@ -77,14 +106,14 @@ export default function ArchiveFilters({
       </div>
 
       <div className="archive-quickbar">
-        <div className="segmented-control media-type-filter" aria-label="Media type">
+        <div role="group" className="segmented-control media-type-filter" aria-label="Media type">
           {MEDIA_TYPES.map((type) => (
-            <button key={type || 'all'} type="button" className={selectedType === type ? 'active' : ''} onClick={() => setSelectedType(type)} aria-pressed={selectedType === type}>
-              {type || 'all'}
+            <button key={type ? type[0].toUpperCase() + type.slice(1) : 'All'} type="button" className={selectedType === type ? 'active' : ''} onClick={() => setSelectedType(type)} aria-pressed={selectedType === type}>
+              {type ? type[0].toUpperCase() + type.slice(1) : 'All'}
             </button>
           ))}
         </div>
-        <div className="segmented-control density-control" aria-label="Grid density">
+        <div role="group" className="segmented-control density-control" aria-label="Grid density">
           {DENSITIES.map((mode) => (
             <button key={({ dense: 'Small', compact: 'Medium', wide: 'Large' })[mode]} type="button" className={density === mode ? 'active' : ''} onClick={() => setDensity(mode)} aria-pressed={density === mode}>
               {({ dense: 'Small', compact: 'Medium', wide: 'Large' })[mode]}
@@ -119,11 +148,11 @@ export default function ArchiveFilters({
             </select>
           </label>
           <label className="filter-field">
-            <span>From</span>
+            <span>From date</span>
             <input className="date-input" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
           </label>
           <label className="filter-field">
-            <span>To</span>
+            <span>To date</span>
             <input className="date-input" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
           </label>
           <label className="check-pill thumbnail-filter">
@@ -136,7 +165,7 @@ export default function ArchiveFilters({
         {channels.length > 0 ? (
           <div className="profile-filter-group">
             <span>Profiles</span>
-            <div className="profile-filter" aria-label="Profile filters">
+            <div role="group" className="profile-filter" aria-label="Profile filters">
               {channels.map((channel) => (
                 <button
                   key={channel.id}

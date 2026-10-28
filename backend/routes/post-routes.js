@@ -16,6 +16,13 @@ export const createPostRoutes = (router, archiveCatalog) => {
   );
 
   router.get(
+    '/random',
+    asyncRoute(async (req, res) => {
+      res.json(await archiveCatalog.random(parsePostsQuery(req.query)));
+    }),
+  );
+
+  router.get(
     '/:id/download',
     asyncRoute(async (req, res) => {
       const file = await archiveCatalog.resolveDownload(req.params.id);

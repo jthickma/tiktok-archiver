@@ -59,8 +59,9 @@ export default function DownloaderForm({ onNavigateToQueue }) {
 
         <form onSubmit={handleDownload} className="stacked-form">
           <div className="form-group">
-            <label className="form-label">Media link</label>
+            <label className="form-label" htmlFor="media-url">Media link</label>
             <input
+              id="media-url"
               type="text"
               className="text-input input-lg"
               placeholder="https://www.tiktok.com/@user/video/123"
@@ -71,25 +72,25 @@ export default function DownloaderForm({ onNavigateToQueue }) {
             />
           </div>
 
-          <div className="form-group">
-            <label className="form-label">Downloader</label>
+          <fieldset className="form-group">
+            <legend className="form-label">Downloader</legend>
             <div className="segmented-control download-mode">
-              <button type="button" className={downloader === 'auto' ? 'active' : ''} onClick={() => setDownloader('auto')} disabled={loading}>
+              <button type="button" className={downloader === 'auto' ? 'active' : ''} aria-pressed={downloader === 'auto'} onClick={() => setDownloader('auto')} disabled={loading}>
                 Auto
               </button>
-              <button type="button" className={downloader === 'gallery-dl' ? 'active' : ''} onClick={() => setDownloader('gallery-dl')} disabled={loading}>
+              <button type="button" className={downloader === 'gallery-dl' ? 'active' : ''} aria-pressed={downloader === 'gallery-dl'} onClick={() => setDownloader('gallery-dl')} disabled={loading}>
                 gallery-dl
               </button>
             </div>
-          </div>
+          </fieldset>
 
           <button type="submit" className="btn btn-primary full-width" disabled={loading}>
             {loading ? 'Queueing...' : 'Queue download'}
           </button>
         </form>
 
-        {message && <div className="alert success">{message}</div>}
-        {error && <div className="alert danger">{error}</div>}
+        {message && <div className="alert success" role="status">{message}</div>}
+        {error && <div className="alert danger" role="alert">{error}</div>}
       </section>
 
       <section className="panel compact-panel">
